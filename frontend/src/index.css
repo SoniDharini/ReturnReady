@@ -1,0 +1,90 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
+
+  --color-brand-50: #f0fdfa;
+  --color-brand-100: #ccfbf1;
+  --color-brand-200: #99f6e4;
+  --color-brand-300: #5eead4;
+  --color-brand-400: #2dd4bf;
+  --color-brand-500: #14b8a6;
+  --color-brand-600: #0f766e;
+  --color-brand-700: #0f5f5a;
+  --color-brand-800: #115e59;
+  --color-brand-900: #134e4a;
+
+  --color-ink: #1a1f24;
+  --color-ink-secondary: #5c6670;
+  --color-ink-muted: #8b949e;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f6f7f9;
+  --color-surface-subtle: #eef1f4;
+  --color-border: #e4e8ec;
+  --color-border-strong: #d0d6dd;
+
+  --color-success: #15803d;
+  --color-success-bg: #f0fdf4;
+  --color-warning: #b45309;
+  --color-warning-bg: #fffbeb;
+  --color-danger: #b91c1c;
+  --color-danger-bg: #fef2f2;
+  --color-info: #1d4ed8;
+  --color-info-bg: #eff6ff;
+
+  --shadow-card: 0 1px 2px rgb(26 31 36 / 0.04), 0 4px 12px rgb(26 31 36 / 0.04);
+  --shadow-elevated: 0 4px 16px rgb(26 31 36 / 0.08), 0 1px 3px rgb(26 31 36 / 0.04);
+  --radius-card: 12px;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    font-family: var(--font-sans);
+    color: var(--color-ink);
+    background: var(--color-surface-muted);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  #root {
+    min-height: 100vh;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-brand-600);
+    outline-offset: 2px;
+  }
+}
+
+@layer utilities {
+  .page-container {
+    width: 100%;
+    max-width: 1440px;
+    margin-inline: auto;
+  }
+
+  .shadow-card {
+    box-shadow: var(--shadow-card);
+  }
+
+  .shadow-elevated {
+    box-shadow: var(--shadow-elevated);
+  }
+}
