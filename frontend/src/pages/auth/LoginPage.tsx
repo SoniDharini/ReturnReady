@@ -7,15 +7,29 @@ import { useAuth } from '@/context/AuthContext'
 export function LoginPage() {
   const navigate = useNavigate()
   const { login } = useAuth()
-  const [email, setEmail] = useState('rahul@example.com')
-  const [password, setPassword] = useState('password')
-  const [remember, setRemember] = useState(true)
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const isTenant = email.toLowerCase().includes('aaditya') || email.toLowerCase().includes('tenant')
-    login(isTenant ? 'tenant' : 'owner')
-    navigate('/app/dashboard')
+    setError('')
+    setLoading(true)
+    try {
+      const result = await login(email, password)
+      if (!result.ok) {
+        if (result.error === 'ACCESS_CLOSED' && result.redirectTo) {
+          navigate(result.redirectTo)
+          return
+        }
+        setError(result.error)
+        return
+      }
+      navigate(result.redirectTo)
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -30,7 +44,8 @@ export function LoginPage() {
 
         <h1 className="text-2xl font-bold text-ink">Sign in</h1>
         <p className="mt-1.5 text-sm text-ink-secondary">
-          Access your properties, inspections, and settlements.
+          Your account role is fixed. You&apos;ll be taken to your Owner or Tenant workspace
+          automatically.
         </p>
 
         <form onSubmit={handleSubmit} className="mt-8 space-y-4">
@@ -39,7 +54,8 @@ export function LoginPage() {
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@example.com"
+            placeholder="Enter your email"
+            autoComplete="email"
             required
           />
           <Input
@@ -48,38 +64,25 @@ export function LoginPage() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Enter your password"
+            autoComplete="current-password"
             required
           />
 
-          <div className="flex items-center justify-between text-sm">
-            <label className="flex items-center gap-2 text-ink-secondary">
-              <input
-                type="checkbox"
-                checked={remember}
-                onChange={(e) => setRemember(e.target.checked)}
-                className="h-4 w-4 rounded border-border text-brand-600"
-              />
-              Remember me
-            </label>
-            <button type="button" className="font-semibold text-brand-700 hover:underline">
-              Forgot password?
-            </button>
-          </div>
+          {error ? <p className="text-sm text-danger">{error}</p> : null}
 
-          <Button type="submit" className="w-full" size="lg">
-            Sign In
+          <Button type="submit" className="w-full" size="lg" disabled={loading}>
+            {loading ? 'Signing in...' : 'Sign In'}
           </Button>
         </form>
 
-        <p className="mt-6 text-center text-sm text-ink-secondary">
-          Don&apos;t have an account?{' '}
-          <Link to="/register" className="font-semibold text-brand-700 hover:underline">
-            Create Account
-          </Link>
-        </p>
-
-        <div className="mt-6 rounded-xl bg-surface-muted p-3 text-xs text-ink-muted">
-          Demo tip: use any email for owner, or include &quot;aaditya&quot; / &quot;tenant&quot; for tenant view.
+        <div className="mt-6 space-y-2 text-center text-sm text-ink-secondary">
+          <p>
+            Property owner?{' '}
+            <Link to="/register/owner" className="font-semibold text-brand-700 hover:underline">
+              Create Owner Account
+            </Link>
+          </p>
+          <p className="text-ink-muted">Tenants sign in after accepting an owner invitation.</p>
         </div>
       </div>
     </div>

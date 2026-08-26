@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Building2, MoreHorizontal, Plus } from 'lucide-react'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -7,16 +7,41 @@ import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Modal } from '@/components/ui/Modal'
-import { useAuth } from '@/context/AuthContext'
-import { properties } from '@/data/mock'
+import { useAppPaths } from '@/hooks/useAppPaths'
+import { deleteProperty, listProperties } from '@/services/property.service'
+import { getErrorMessage } from '@/services/api'
+import type { Property } from '@/types'
 
 export function PropertiesPage() {
   const navigate = useNavigate()
-  const { demoMode } = useAuth()
+  const paths = useAppPaths()
+  const [properties, setProperties] = useState<Property[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const [menuId, setMenuId] = useState<string | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
 
-  if (demoMode === 'empty') {
+  const load = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      setProperties(await listProperties())
+    } catch (err) {
+      setError(getErrorMessage(err, 'Unable to load properties'))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void load()
+  }, [])
+
+  if (loading) {
+    return <p className="text-sm text-ink-secondary">Loading properties...</p>
+  }
+
+  if (!error && properties.length === 0) {
     return (
       <div>
         <PageHeader
@@ -28,7 +53,7 @@ export function PropertiesPage() {
           title="No properties yet"
           description="Add your first property to start creating tenancies and inspections."
           actionLabel="+ Add Property"
-          onAction={() => navigate('/app/properties/new')}
+          onAction={() => navigate(paths.propertyNew)}
         />
       </div>
     )
@@ -40,12 +65,14 @@ export function PropertiesPage() {
         title="Properties"
         description="Manage properties used across your tenancies and inspections."
         actions={
-          <Button onClick={() => navigate('/app/properties/new')}>
+          <Button onClick={() => navigate(paths.propertyNew)}>
             <Plus className="h-4 w-4" />
             Add Property
           </Button>
         }
       />
+
+      {error ? <p className="mb-4 text-sm text-danger">{error}</p> : null}
 
       <div className="hidden overflow-hidden rounded-2xl border border-border bg-white shadow-card md:block">
         <table className="w-full text-left text-sm">
@@ -68,7 +95,7 @@ export function PropertiesPage() {
                     {property.address}, {property.city}
                   </p>
                 </td>
-                <td className="px-5 py-4 text-ink-secondary">{property.type}</td>
+                <td className="px-5 py-4 capitalize text-ink-secondary">{property.type}</td>
                 <td className="px-5 py-4 text-ink-secondary">{property.rooms}</td>
                 <td className="px-5 py-4 text-ink-secondary">{property.activeTenancy || '—'}</td>
                 <td className="px-5 py-4">
@@ -76,7 +103,11 @@ export function PropertiesPage() {
                 </td>
                 <td className="relative px-5 py-4">
                   <div className="flex items-center gap-2">
-                    <Button variant="secondary" size="sm" onClick={() => navigate(`/app/properties/${property.id}`)}>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => navigate(paths.property(property.id))}
+                    >
                       View
                     </Button>
                     <Button
@@ -90,13 +121,6 @@ export function PropertiesPage() {
                   </div>
                   {menuId === property.id ? (
                     <div className="absolute right-5 z-10 mt-1 w-36 rounded-xl border border-border bg-white p-1 shadow-elevated">
-                      <button
-                        type="button"
-                        className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-surface-muted"
-                        onClick={() => navigate(`/app/properties/${property.id}`)}
-                      >
-                        Edit
-                      </button>
                       <button
                         type="button"
                         className="w-full rounded-lg px-3 py-2 text-left text-sm text-danger hover:bg-danger-bg"
@@ -128,21 +152,11 @@ export function PropertiesPage() {
               </div>
               <Badge status={property.status}>{property.status}</Badge>
             </div>
-            <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <dt className="text-ink-muted">Type</dt>
-                <dd className="font-medium text-ink">{property.type}</dd>
-              </div>
-              <div>
-                <dt className="text-ink-muted">Rooms</dt>
-                <dd className="font-medium text-ink">{property.rooms}</dd>
-              </div>
-              <div className="col-span-2">
-                <dt className="text-ink-muted">Active Tenancy</dt>
-                <dd className="font-medium text-ink">{property.activeTenancy || 'None'}</dd>
-              </div>
-            </dl>
-            <Button className="mt-4 w-full" variant="secondary" onClick={() => navigate(`/app/properties/${property.id}`)}>
+            <Button
+              className="mt-4 w-full"
+              variant="secondary"
+              onClick={() => navigate(paths.property(property.id))}
+            >
               View
             </Button>
           </Card>
@@ -159,7 +173,20 @@ export function PropertiesPage() {
             <Button variant="secondary" onClick={() => setDeleteId(null)}>
               Cancel
             </Button>
-            <Button variant="destructive" onClick={() => setDeleteId(null)}>
+            <Button
+              variant="destructive"
+              onClick={async () => {
+                if (!deleteId) return
+                try {
+                  await deleteProperty(deleteId)
+                  setDeleteId(null)
+                  await load()
+                } catch (err) {
+                  setError(getErrorMessage(err, 'Unable to delete property'))
+                  setDeleteId(null)
+                }
+              }}
+            >
               Delete Property
             </Button>
           </>

@@ -1,14 +1,14 @@
 import { Lock } from 'lucide-react'
+import { useState } from 'react'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { useAuth } from '@/context/AuthContext'
-import { useState } from 'react'
 
 export function InspectionApprovalPage() {
   const { user } = useAuth()
-  const [tenantApproved, setTenantApproved] = useState(user?.role === 'owner')
+  const [tenantApproved, setTenantApproved] = useState(user?.role === 'OWNER')
   const [ownerApproved, setOwnerApproved] = useState(true)
   const locked = ownerApproved && tenantApproved
 
@@ -35,13 +35,13 @@ export function InspectionApprovalPage() {
           </div>
         </div>
 
-        {!locked && user?.role === 'tenant' && !tenantApproved ? (
+        {!locked && user?.role === 'TENANT' && !tenantApproved ? (
           <Button className="mt-6 w-full" onClick={() => setTenantApproved(true)}>
             Approve Inspection
           </Button>
         ) : null}
 
-        {!locked && user?.role === 'owner' && !ownerApproved ? (
+        {!locked && user?.role === 'OWNER' && !ownerApproved ? (
           <Button className="mt-6 w-full" onClick={() => setOwnerApproved(true)}>
             Approve Inspection
           </Button>
@@ -59,9 +59,10 @@ export function InspectionApprovalPage() {
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-brand-600 text-white">
             <Lock className="h-5 w-5" />
           </div>
-          <h2 className="mt-4 text-xl font-bold text-ink">Inspection Locked</h2>
+          <h2 className="mt-4 text-xl font-bold text-ink">Move-In Record Locked</h2>
           <p className="mt-2 text-sm text-ink-secondary">
-            Both parties have approved this record.
+            This inspection has been approved by both parties and is now the official property
+            baseline.
           </p>
           <p className="mt-3 text-sm font-semibold text-ink">01 June 2026 · 4:12 PM</p>
         </Card>

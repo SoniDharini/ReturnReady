@@ -1,52 +1,57 @@
 import { useState } from 'react'
-import { Navigate, Outlet, useLocation } from 'react-router-dom'
+import { Outlet, useLocation } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
 import { useAuth } from '@/context/AuthContext'
+import { appPaths } from '@/lib/paths'
 
-const titles: Record<string, string> = {
-  '/app/dashboard': 'Dashboard',
-  '/app/properties': 'Properties',
-  '/app/properties/new': 'Add Property',
-  '/app/properties/p1': 'Property Details',
-  '/app/tenancies': 'Tenancies',
-  '/app/tenancies/new': 'Create Tenancy',
-  '/app/tenancies/t1': 'Tenancy Details',
-  '/app/inspections': 'Inspections',
-  '/app/inspections/move-in': 'Move-In Inspection',
-  '/app/inspections/wizard': 'Inspection Wizard',
-  '/app/inspections/review': 'Inspection Review',
-  '/app/inspections/approval': 'Inspection Approval',
-  '/app/inspections/move-out': 'Move-Out Inspection',
-  '/app/inspections/comparison': 'Move-In vs Move-Out',
-  '/app/settlement': 'Security Deposit Settlement',
-  '/app/settlement/sign': 'Final Approval',
-  '/app/settlement/complete': 'Property Handover Complete',
-  '/app/reports': 'Reports',
-  '/app/my-rental': 'My Rental',
-  '/app/settings': 'Settings',
-  '/app/help': 'Help',
+function resolveTitle(pathname: string): string {
+  const map: Record<string, string> = {
+    dashboard: 'Dashboard',
+    onboarding: 'Welcome',
+    properties: 'Properties',
+    'properties/new': 'Add Property',
+    tenancies: 'Tenancies',
+    'tenancies/new': 'Invite Tenant',
+    rental: 'My Rental',
+    inspections: 'Inspections',
+    'inspections/move-in': 'Move-In Inspection',
+    'inspections/wizard': 'Inspection Wizard',
+    'inspections/review': 'Inspection Review',
+    'inspections/approval': 'Inspection Approval',
+    'inspections/move-out': 'Move-Out Inspection',
+    'inspections/comparison': 'Move-In vs Move-Out',
+    settlement: 'Security Deposit Settlement',
+    'settlement/sign': 'Final Approval',
+    'settlement/complete': 'Property Handover Complete',
+    reports: 'Reports',
+    settings: 'Settings',
+    help: 'Help',
+  }
+
+  const parts = pathname.split('/').filter(Boolean)
+  const withoutRole = parts.slice(1).join('/')
+  if (map[withoutRole]) return map[withoutRole]
+  if (withoutRole.startsWith('properties/')) return 'Property Details'
+  if (withoutRole.startsWith('tenancies/')) return 'Tenancy Details'
+  return 'ReturnReady'
 }
 
 export function AppLayout() {
-  const { isAuthenticated } = useAuth()
+  const { user } = useAuth()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const location = useLocation()
-
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />
-  }
-
-  const title =
-    titles[location.pathname] ||
-    [...Object.entries(titles)].find(([path]) => location.pathname.startsWith(path))?.[1] ||
-    'ReturnReady'
+  const paths = user ? appPaths(user.role) : null
 
   return (
     <div className="flex min-h-screen bg-surface-muted">
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <TopBar title={title} onMenuClick={() => setSidebarOpen(true)} />
+        <TopBar
+          title={resolveTitle(location.pathname)}
+          onMenuClick={() => setSidebarOpen(true)}
+          settingsPath={paths?.settings || '/login'}
+        />
         <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
           <div className="page-container">
             <Outlet />

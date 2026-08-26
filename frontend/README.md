@@ -1,38 +1,41 @@
 # ReturnReady Frontend
 
-Professional UI for rental property handover, inspection, comparison, and deposit settlement.
+React + TypeScript UI connected to the Node.js API and MongoDB.
 
-## Stack
-
-- React + TypeScript (Vite)
-- Tailwind CSS v4
-- React Router
-- Lucide Icons
-
-## Run
+## Setup
 
 ```bash
 cd frontend
 npm install
+```
+
+Create `.env` (see `.env.example`):
+
+```env
+VITE_API_URL=http://localhost:5000/api
+```
+
+Start the backend first (`cd backend && npm run dev`), then:
+
+```bash
 npm run dev
 ```
 
-Open the local URL shown in the terminal (usually `http://localhost:5173`).
+## Auth flow
 
-## Demo tips
+1. Owner registers at `/register/owner` → `POST /api/auth/register`
+2. Login at `/login` → `POST /api/auth/login` (role comes from MongoDB)
+3. Session restore on reload → `GET /api/auth/me`
+4. Tenant joins via `/invite/:token` only (no public tenant signup)
 
-1. **Landing** → Get Started / Sign In
-2. **Owner login** — any email (default `rahul@example.com`)
-3. **Tenant login** — email containing `aaditya` or `tenant`
-4. **Invite flow** — `/invite`
-5. Profile menu → switch Owner/Tenant view, or toggle empty vs populated demo states
+Access token is stored in `sessionStorage`; refresh token uses an HTTP-only cookie.
 
-## Key screens
+## Integrated APIs
 
-- Owner & Tenant dashboards with next-action CTAs
-- Properties, rooms & inventory
-- Create tenancy wizard + invitation
-- Mobile-friendly inspection wizard
-- Move-in vs move-out comparison
-- Damage assessment & deposit settlement
-- Digital signature & final report
+| Feature | Endpoints |
+|---------|-----------|
+| Auth | `/api/auth/*` |
+| Properties | `/api/properties` |
+| Tenancies / invites | `/api/tenancies`, `/api/invitations` |
+
+Inspection and settlement screens remain in the UI as empty states until those backend modules are added.

@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { KeyRound, Plus } from 'lucide-react'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -5,23 +6,48 @@ import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { useAuth } from '@/context/AuthContext'
-import { tenancies } from '@/data/mock'
+import { useAppPaths } from '@/hooks/useAppPaths'
+import { listTenancies } from '@/services/tenancy.service'
+import { getErrorMessage } from '@/services/api'
+import type { Tenancy } from '@/types'
 
 export function TenanciesPage() {
   const navigate = useNavigate()
-  const { demoMode } = useAuth()
+  const paths = useAppPaths()
+  const [tenancies, setTenancies] = useState<Tenancy[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
 
-  if (demoMode === 'empty') {
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      try {
+        const data = await listTenancies()
+        if (!cancelled) setTenancies(data)
+      } catch (err) {
+        if (!cancelled) setError(getErrorMessage(err, 'Unable to load tenancies'))
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    void load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  if (loading) return <p className="text-sm text-ink-secondary">Loading tenancies...</p>
+
+  if (!error && tenancies.length === 0) {
     return (
       <div>
-        <PageHeader title="Tenancies" description="Track invitations, active rentals, and settlements." />
+        <PageHeader title="Tenancies" description="Invite tenants and track rental handovers." />
         <EmptyState
           icon={KeyRound}
           title="No tenancies yet"
           description="Create a tenancy to invite a tenant and begin the handover workflow."
-          actionLabel="+ Create Tenancy"
-          onAction={() => navigate('/app/tenancies/new')}
+          actionLabel="+ Invite Tenant"
+          onAction={() => navigate(paths.tenancyNew)}
         />
       </div>
     )
@@ -31,14 +57,15 @@ export function TenanciesPage() {
     <div>
       <PageHeader
         title="Tenancies"
-        description="Track invitations, active rentals, and settlements."
+        description="Invite tenants and track rental handovers."
         actions={
-          <Button onClick={() => navigate('/app/tenancies/new')}>
+          <Button onClick={() => navigate(paths.tenancyNew)}>
             <Plus className="h-4 w-4" />
-            Create Tenancy
+            Invite Tenant
           </Button>
         }
       />
+      {error ? <p className="mb-4 text-sm text-danger">{error}</p> : null}
       <div className="grid gap-4">
         {tenancies.map((tenancy) => (
           <Card key={tenancy.id} interactive>
@@ -52,7 +79,11 @@ export function TenanciesPage() {
               </div>
               <Badge status={tenancy.status}>{tenancy.status}</Badge>
             </div>
-            <Button className="mt-4" variant="secondary" onClick={() => navigate(`/app/tenancies/${tenancy.id}`)}>
+            <Button
+              className="mt-4"
+              variant="secondary"
+              onClick={() => navigate(paths.tenancy(tenancy.id))}
+            >
               View Tenancy
             </Button>
           </Card>

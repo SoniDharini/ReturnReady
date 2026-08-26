@@ -1,21 +1,45 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Building2, Home } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { useAuth } from '@/context/AuthContext'
-import { cn } from '@/lib/utils'
-import type { UserRole } from '@/data/mock'
 
 export function RegisterPage() {
   const navigate = useNavigate()
-  const { login } = useAuth()
-  const [role, setRole] = useState<UserRole>('owner')
+  const { registerOwner } = useAuth()
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [form, setForm] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    password: '',
+    confirm: '',
+  })
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    login(role)
-    navigate('/app/dashboard')
+    setError('')
+    if (form.password !== form.confirm) {
+      setError('Passwords do not match.')
+      return
+    }
+    setLoading(true)
+    try {
+      const result = await registerOwner({
+        name: form.name,
+        email: form.email,
+        phone: form.phone,
+        password: form.password,
+      })
+      if (!result.ok) {
+        setError(result.error)
+        return
+      }
+      navigate(result.redirectTo)
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -28,56 +52,63 @@ export function RegisterPage() {
           <span className="font-extrabold text-ink">ReturnReady</span>
         </Link>
 
-        <h1 className="text-2xl font-bold text-ink">Create your account</h1>
+        <p className="mb-2 text-xs font-bold uppercase tracking-wide text-brand-700">Property Owner</p>
+        <h1 className="text-2xl font-bold text-ink">Create Owner Account</h1>
         <p className="mt-1.5 text-sm text-ink-secondary">
-          Start documenting property condition with shared evidence.
+          Create your account to manage properties, invite tenants, conduct inspections and complete
+          rental handovers.
         </p>
 
         <form onSubmit={handleSubmit} className="mt-8 space-y-4">
-          <div>
-            <p className="mb-2 text-sm font-semibold text-ink">I am a:</p>
-            <div className="grid grid-cols-2 gap-3">
-              {(
-                [
-                  { id: 'owner', label: 'Property Owner', icon: Building2, hint: 'Manage properties & tenancies' },
-                  { id: 'tenant', label: 'Tenant', icon: Home, hint: 'Join inspections & settlements' },
-                ] as const
-              ).map((option) => (
-                <button
-                  key={option.id}
-                  type="button"
-                  onClick={() => setRole(option.id)}
-                  className={cn(
-                    'rounded-2xl border-2 p-4 text-left transition-colors',
-                    role === option.id
-                      ? 'border-brand-600 bg-brand-50'
-                      : 'border-border bg-white hover:border-border-strong',
-                  )}
-                >
-                  <option.icon
-                    className={cn('mb-2 h-5 w-5', role === option.id ? 'text-brand-700' : 'text-ink-muted')}
-                  />
-                  <p className="text-sm font-bold text-ink">{option.label}</p>
-                  <p className="mt-1 text-xs text-ink-muted">{option.hint}</p>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <Input label="Full Name" name="name" placeholder="Rahul Patel" required />
-          <Input label="Email" type="email" name="email" placeholder="you@example.com" required />
-          <Input label="Phone Number" type="tel" name="phone" placeholder="+91 98765 43210" required />
-          <Input label="Password" type="password" name="password" placeholder="Create a password" required />
+          <Input
+            label="Full Name"
+            name="name"
+            value={form.name}
+            onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+            placeholder="Full name"
+            required
+          />
+          <Input
+            label="Email Address"
+            type="email"
+            name="email"
+            value={form.email}
+            onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+            placeholder="you@example.com"
+            required
+          />
+          <Input
+            label="Phone Number"
+            type="tel"
+            name="phone"
+            value={form.phone}
+            onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+            placeholder="+91 98765 43210"
+            required
+          />
+          <Input
+            label="Password"
+            type="password"
+            name="password"
+            value={form.password}
+            onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+            placeholder="Min 8 chars, upper, lower, number"
+            required
+          />
           <Input
             label="Confirm Password"
             type="password"
             name="confirm"
+            value={form.confirm}
+            onChange={(e) => setForm((f) => ({ ...f, confirm: e.target.value }))}
             placeholder="Re-enter password"
             required
           />
 
-          <Button type="submit" className="w-full" size="lg">
-            Create Account
+          {error ? <p className="text-sm text-danger">{error}</p> : null}
+
+          <Button type="submit" className="w-full" size="lg" disabled={loading}>
+            {loading ? 'Creating account...' : 'Create Owner Account'}
           </Button>
         </form>
 
@@ -86,6 +117,9 @@ export function RegisterPage() {
           <Link to="/login" className="font-semibold text-brand-700 hover:underline">
             Sign In
           </Link>
+        </p>
+        <p className="mt-2 text-center text-sm text-ink-muted">
+          Tenants cannot register here. Use your invitation link instead.
         </p>
       </div>
     </div>

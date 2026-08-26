@@ -3,9 +3,11 @@ import { CheckCircle2, Download, FileText } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { formatCurrency } from '@/lib/utils'
+import { useAppPaths } from '@/hooks/useAppPaths'
 
 export function SettlementCompletePage() {
   const navigate = useNavigate()
+  const paths = useAppPaths()
 
   return (
     <div className="mx-auto max-w-2xl space-y-6 text-center">
@@ -43,10 +45,6 @@ export function SettlementCompletePage() {
             <dd className="font-semibold text-brand-700">{formatCurrency(45300)}</dd>
           </div>
           <div className="flex justify-between gap-4">
-            <dt className="text-ink-muted">Inspection Completion</dt>
-            <dd className="font-semibold">Move-in & Move-out locked</dd>
-          </div>
-          <div className="flex justify-between gap-4">
             <dt className="text-ink-muted">Signatures</dt>
             <dd className="font-semibold">Owner & Tenant signed</dd>
           </div>
@@ -58,7 +56,7 @@ export function SettlementCompletePage() {
           <Download className="h-4 w-4" />
           Download Final Report
         </Button>
-        <Button size="lg" variant="secondary" onClick={() => navigate('/app/reports')}>
+        <Button size="lg" variant="secondary" onClick={() => navigate(paths.reports)}>
           <FileText className="h-4 w-4" />
           View Report
         </Button>

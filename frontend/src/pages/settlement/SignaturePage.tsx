@@ -6,9 +6,11 @@ import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { useAuth } from '@/context/AuthContext'
 import { formatCurrency } from '@/lib/utils'
+import { useAppPaths } from '@/hooks/useAppPaths'
 
 export function SignaturePage() {
   const navigate = useNavigate()
+  const paths = useAppPaths()
   const { user } = useAuth()
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [drawing, setDrawing] = useState(false)
@@ -62,19 +64,13 @@ export function SignaturePage() {
   }
 
   const confirm = () => {
-    if (user?.role === 'tenant') setTenantSigned(true)
-    else setOwnerSigned(true)
-    if ((user?.role === 'tenant' && ownerSigned) || (user?.role === 'owner' && tenantSigned) || hasSignature) {
-      // demo: after confirming, if both would be signed, go to complete
-    }
-    if (user?.role === 'tenant') {
+    if (user?.role === 'TENANT') {
       setTenantSigned(true)
-      if (ownerSigned) navigate('/app/settlement/complete')
+      if (ownerSigned) navigate(paths.settlementComplete)
     } else {
       setOwnerSigned(true)
-      // In demo, marking owner sign completes after tenant also shown signed for flow
       setTenantSigned(true)
-      navigate('/app/settlement/complete')
+      navigate(paths.settlementComplete)
     }
   }
 

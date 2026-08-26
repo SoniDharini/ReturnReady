@@ -1,0 +1,73 @@
+import { z } from 'zod';
+import { ApiError } from '../utils/ApiError.js';
+
+export const propertySchema = z.object({
+  name: z.string().trim().min(2).max(120),
+  type: z.enum(['apartment', 'villa', 'studio', 'house']).default('apartment'),
+  address: z.string().trim().min(2),
+  city: z.string().trim().min(2),
+  state: z.string().trim().min(2),
+  pin: z.string().trim().min(4).max(12),
+  rooms: z.coerce.number().int().min(0).optional().default(0),
+  bathrooms: z.coerce.number().int().min(0).optional().default(0),
+  status: z.enum(['Draft', 'Active']).optional().default('Active'),
+  roomList: z
+    .array(
+      z.object({
+        name: z.string().trim().min(1),
+        items: z
+          .array(
+            z.object({
+              name: z.string().trim().min(1),
+              quantity: z.coerce.number().min(0).default(1),
+              description: z.string().optional().default(''),
+            }),
+          )
+          .optional()
+          .default([]),
+      }),
+    )
+    .optional()
+    .default([]),
+});
+
+export const tenancySchema = z.object({
+  propertyId: z.string().min(1),
+  tenantName: z.string().trim().min(2),
+  tenantEmail: z.string().trim().email().transform((v) => v.toLowerCase()),
+  tenantPhone: z.string().trim().optional().default(''),
+  moveIn: z.string().min(1),
+  moveOut: z.string().min(1),
+  rent: z.coerce.number().min(0),
+  deposit: z.coerce.number().min(0),
+});
+
+export const activateTenantSchema = z.object({
+  token: z.string().min(10),
+  password: z
+    .string()
+    .min(8)
+    .regex(/[a-z]/, 'Password must include a lowercase letter')
+    .regex(/[A-Z]/, 'Password must include an uppercase letter')
+    .regex(/[0-9]/, 'Password must include a number'),
+});
+
+function formatZodErrors(error) {
+  const errors = {};
+  for (const issue of error.issues) {
+    const key = issue.path.join('.') || 'form';
+    if (!errors[key]) errors[key] = issue.message;
+  }
+  return errors;
+}
+
+export function validateBody(schema) {
+  return (req, _res, next) => {
+    const result = schema.safeParse(req.body);
+    if (!result.success) {
+      return next(new ApiError(400, 'Validation failed', formatZodErrors(result.error)));
+    }
+    req.body = result.data;
+    return next();
+  };
+}

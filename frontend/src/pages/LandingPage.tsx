@@ -4,6 +4,7 @@ import {
   Camera,
   ClipboardCheck,
   FileCheck2,
+  Mail,
   Scale,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
@@ -49,16 +50,11 @@ export function LandingPage() {
             </div>
             <span className="text-base font-extrabold text-ink">ReturnReady</span>
           </div>
-          <div className="flex items-center gap-2">
-            <Link to="/login">
-              <Button variant="tertiary" size="sm">
-                Sign In
-              </Button>
-            </Link>
-            <Link to="/register">
-              <Button size="sm">Get Started</Button>
-            </Link>
-          </div>
+          <Link to="/login">
+            <Button variant="tertiary" size="sm">
+              Sign In
+            </Button>
+          </Link>
         </div>
       </header>
 
@@ -72,22 +68,26 @@ export function LandingPage() {
               Move in with proof. Move out with confidence.
             </h1>
             <p className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-ink-secondary sm:text-lg">
-              Create a shared property-condition record between landlords and tenants, compare
-              move-in and move-out inspections, and settle deposits with clear evidence.
+              Create a shared property-condition record, compare move-in and move-out inspections,
+              and settle rental handovers with clear evidence.
             </p>
-            <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-              <Link to="/register">
+            <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
+              <Link to="/register/owner">
                 <Button size="lg">
-                  Get Started
+                  I&apos;m a Property Owner
                   <ArrowRight className="h-4 w-4" />
                 </Button>
               </Link>
-              <a href="#how-it-works">
+              <Link to="/login">
                 <Button variant="secondary" size="lg">
-                  See How It Works
+                  <Mail className="h-4 w-4" />
+                  I Have an Invitation
                 </Button>
-              </a>
+              </Link>
             </div>
+            <p className="mt-4 text-sm text-ink-muted">
+              Tenants join only through an owner invitation link — there is no public tenant signup.
+            </p>
           </div>
 
           <div id="how-it-works" className="mx-auto mt-14 max-w-3xl">

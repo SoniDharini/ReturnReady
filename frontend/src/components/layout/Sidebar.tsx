@@ -8,24 +8,11 @@ import {
   LayoutDashboard,
   Settings,
   Home,
+  Receipt,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/context/AuthContext'
-
-const ownerLinks = [
-  { to: '/app/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/app/properties', label: 'Properties', icon: Building2 },
-  { to: '/app/tenancies', label: 'Tenancies', icon: KeyRound },
-  { to: '/app/inspections', label: 'Inspections', icon: ClipboardCheck },
-  { to: '/app/reports', label: 'Reports', icon: FileText },
-]
-
-const tenantLinks = [
-  { to: '/app/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/app/my-rental', label: 'My Rental', icon: Home },
-  { to: '/app/inspections', label: 'Inspections', icon: ClipboardCheck },
-  { to: '/app/reports', label: 'Reports', icon: FileText },
-]
+import { appPaths } from '@/lib/paths'
 
 type SidebarProps = {
   open: boolean
@@ -34,7 +21,25 @@ type SidebarProps = {
 
 export function Sidebar({ open, onClose }: SidebarProps) {
   const { user } = useAuth()
-  const links = user?.role === 'tenant' ? tenantLinks : ownerLinks
+  if (!user) return null
+
+  const paths = appPaths(user.role)
+  const links =
+    user.role === 'OWNER'
+      ? [
+          { to: paths.dashboard, label: 'Dashboard', icon: LayoutDashboard },
+          { to: paths.properties, label: 'Properties', icon: Building2 },
+          { to: paths.tenancies, label: 'Tenancies', icon: KeyRound },
+          { to: paths.inspections, label: 'Inspections', icon: ClipboardCheck },
+          { to: paths.reports, label: 'Reports', icon: FileText },
+        ]
+      : [
+          { to: paths.dashboard, label: 'Dashboard', icon: LayoutDashboard },
+          { to: paths.rental, label: 'My Rental', icon: Home },
+          { to: paths.inspections, label: 'Inspections', icon: ClipboardCheck },
+          { to: paths.settlement, label: 'Settlement', icon: Receipt },
+          { to: paths.reports, label: 'Reports', icon: FileText },
+        ]
 
   return (
     <>
@@ -68,6 +73,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             <NavLink
               key={to}
               to={to}
+              end={to.endsWith('/dashboard')}
               onClick={onClose}
               className={({ isActive }) =>
                 cn(
@@ -78,7 +84,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                 )
               }
             >
-              <Icon className="h-4.5 w-4.5" aria-hidden />
+              <Icon className="h-4 w-4" aria-hidden />
               {label}
             </NavLink>
           ))}
@@ -86,7 +92,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
 
         <div className="space-y-1 border-t border-border p-3">
           <NavLink
-            to="/app/help"
+            to={paths.help}
             onClick={onClose}
             className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-ink-secondary hover:bg-surface-muted hover:text-ink"
           >
@@ -94,7 +100,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             Help
           </NavLink>
           <NavLink
-            to="/app/settings"
+            to={paths.settings}
             onClick={onClose}
             className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-ink-secondary hover:bg-surface-muted hover:text-ink"
           >
@@ -104,16 +110,16 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           <div className="mt-2 rounded-xl bg-surface-muted px-3 py-3">
             <div className="flex items-center gap-3">
               <div className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-100 text-sm font-bold text-brand-700">
-                {user?.name
+                {user.name
                   .split(' ')
                   .map((n) => n[0])
                   .join('')
                   .slice(0, 2)}
               </div>
               <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-ink">{user?.name}</p>
+                <p className="truncate text-sm font-semibold text-ink">{user.name}</p>
                 <p className="truncate text-xs text-ink-muted">
-                  {user?.role === 'owner' ? 'Property Owner' : 'Tenant'}
+                  {user.role === 'OWNER' ? 'Property Owner' : 'Tenant'}
                 </p>
               </div>
             </div>
