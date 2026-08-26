@@ -1,0 +1,90 @@
+# =========================
+# Dependencies
+# =========================
+node_modules/
+**/node_modules/
+
+# =========================
+# Environment & secrets
+# =========================
+.env
+.env.*
+!.env.example
+!**/.env.example
+*.pem
+*.key
+secrets/
+credentials/
+
+# =========================
+# Build / output
+# =========================
+dist/
+dist-ssr/
+build/
+out/
+coverage/
+.nyc_output/
+*.tsbuildinfo
+.turbo/
+.cache/
+.vite/
+**/.vite/
+
+# =========================
+# Logs & debug
+# =========================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# =========================
+# Runtime / temp
+# =========================
+tmp/
+temp/
+*.tmp
+*.temp
+*.pid
+*.seed
+*.pid.lock
+
+# =========================
+# OS files
+# =========================
+.DS_Store
+.DS_Store?
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# =========================
+# Editors / IDEs
+# =========================
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+*.swo
+*~
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# =========================
+# Testing / tooling
+# =========================
+.eslintcache
+.stylelintcache
+.prettiercache
+
+# =========================
+# Optional local overrides
+# =========================
+*.local
