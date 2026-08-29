@@ -1,0 +1,69 @@
+import * as damageService from '../services/damage.service.js';
+import * as deductionService from '../services/deduction.service.js';
+
+export async function listAssessments(req, res, next) {
+  try {
+    const assessments = await damageService.listAssessments(req.user, req.params.tenancyId);
+    return res.status(200).json({ success: true, data: { assessments } });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function upsertAssessment(req, res, next) {
+  try {
+    const assessment = await damageService.upsertAssessment(
+      req.user,
+      req.params.tenancyId,
+      req.body,
+    );
+    return res.status(200).json({ success: true, data: { assessment } });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function removeAssessment(req, res, next) {
+  try {
+    await damageService.deleteAssessment(req.user, req.params.assessmentId);
+    return res.status(200).json({ success: true, message: 'Assessment removed' });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function listDeductions(req, res, next) {
+  try {
+    const result = await deductionService.listDeductions(req.user, req.params.tenancyId);
+    return res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function createDeduction(req, res, next) {
+  try {
+    const result = await deductionService.createDeduction(req.user, req.params.tenancyId, req.body);
+    return res.status(201).json({ success: true, data: result });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function updateDeduction(req, res, next) {
+  try {
+    const result = await deductionService.updateDeduction(req.user, req.params.deductionId, req.body);
+    return res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function removeDeduction(req, res, next) {
+  try {
+    const result = await deductionService.removeDeduction(req.user, req.params.deductionId);
+    return res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    return next(error);
+  }
+}

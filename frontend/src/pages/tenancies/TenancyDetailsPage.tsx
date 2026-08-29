@@ -12,8 +12,12 @@ import {
   getTenancy,
   resendInvitation,
 } from '@/services/tenancy.service'
+import {
+  createMoveOutInspection,
+  listTenancyInspections,
+} from '@/services/inspection.service'
 import { getErrorMessage } from '@/services/api'
-import type { Tenancy } from '@/types'
+import type { Inspection, Tenancy } from '@/types'
 import { formatCurrency } from '@/lib/utils'
 import { useAppPaths } from '@/hooks/useAppPaths'
 
@@ -26,11 +30,18 @@ export function TenancyDetailsPage() {
   const [loading, setLoading] = useState(true)
   const [cancelOpen, setCancelOpen] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [inspections, setInspections] = useState<Inspection[]>([])
+  const [startingMoveOut, setStartingMoveOut] = useState(false)
 
   const load = async () => {
     setLoading(true)
     try {
-      setTenancy(await getTenancy(id))
+      const [tenancyData, inspectionList] = await Promise.all([
+        getTenancy(id),
+        listTenancyInspections(id).catch(() => [] as Inspection[]),
+      ])
+      setTenancy(tenancyData)
+      setInspections(inspectionList)
     } catch (err) {
       setError(getErrorMessage(err, 'Unable to load tenancy'))
     } finally {
@@ -65,6 +76,27 @@ export function TenancyDetailsPage() {
   }))
 
   const inviteLink = `${window.location.origin}/invite/${tenancy.inviteToken}`
+  const moveIn = inspections.find((i) => i.type === 'MOVE_IN')
+  const moveOut = inspections.find((i) => i.type === 'MOVE_OUT')
+  const isActiveStage = ['active', 'move-out', 'settlement', 'complete'].includes(tenancy.stage)
+
+  const startMoveOut = async () => {
+    setStartingMoveOut(true)
+    setError('')
+    try {
+      const detail = await createMoveOutInspection(tenancy.id)
+      navigate(paths.inspectionWizard(detail.inspection.id))
+    } catch (err) {
+      const message = getErrorMessage(err, 'Unable to start move-out inspection')
+      if (message.includes('already exists') && moveOut) {
+        navigate(paths.inspectionWizard(moveOut.id))
+        return
+      }
+      setError(message)
+    } finally {
+      setStartingMoveOut(false)
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -132,11 +164,87 @@ export function TenancyDetailsPage() {
             </Button>
           </div>
         ) : (
-          <div className="mt-5">
-            <Button onClick={() => navigate(paths.inspectionMoveIn)}>Start Move-In Inspection</Button>
+          <div className="mt-5 flex flex-wrap gap-2">
+            {!moveIn ? (
+              <Button onClick={() => navigate(paths.inspectionMoveIn(tenancy.id))}>
+                Start Move-In Inspection
+              </Button>
+            ) : moveIn.status === 'APPROVAL_PENDING' ? (
+              <Button onClick={() => navigate(paths.inspectionApproval(moveIn.id))}>
+                Review Move-In Approval
+              </Button>
+            ) : ['DRAFT', 'IN_PROGRESS'].includes(moveIn.status) ? (
+              <Button onClick={() => navigate(paths.inspectionWizard(moveIn.id))}>
+                Continue Move-In Inspection
+              </Button>
+            ) : moveIn.status === 'LOCKED' ? (
+              <Badge status="Completed">Move-In Completed ✓</Badge>
+            ) : null}
           </div>
         )}
       </Card>
+
+      {isActiveStage ? (
+        <Card>
+          <h2 className="text-lg font-bold text-ink">Active Tenancy</h2>
+          <dl className="mt-4 grid gap-4 text-sm sm:grid-cols-2">
+            <div>
+              <dt className="text-ink-muted">Property</dt>
+              <dd className="mt-1 font-semibold">{tenancy.propertyName}</dd>
+            </div>
+            <div>
+              <dt className="text-ink-muted">Tenant</dt>
+              <dd className="mt-1 font-semibold">{tenancy.tenantName}</dd>
+            </div>
+            <div>
+              <dt className="text-ink-muted">Move-In Inspection</dt>
+              <dd className="mt-1 font-semibold">
+                {moveIn?.status === 'LOCKED' ? 'Completed ✓' : moveIn?.status.replaceAll('_', ' ') || '—'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-ink-muted">Move-Out Inspection</dt>
+              <dd className="mt-1 font-semibold">
+                {!moveOut
+                  ? 'Not Started'
+                  : moveOut.status === 'COMPLETED'
+                    ? 'Completed ✓'
+                    : moveOut.status.replaceAll('_', ' ')}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-ink-muted">Expected Move-Out</dt>
+              <dd className="mt-1 font-semibold">{tenancy.moveOut}</dd>
+            </div>
+            <div>
+              <dt className="text-ink-muted">Security Deposit</dt>
+              <dd className="mt-1 font-semibold">{formatCurrency(tenancy.deposit)}</dd>
+            </div>
+          </dl>
+          <div className="mt-5 flex flex-wrap gap-2">
+            {moveIn?.status === 'LOCKED' && !moveOut ? (
+              <Button disabled={startingMoveOut} onClick={() => void startMoveOut()}>
+                {startingMoveOut ? 'Starting...' : 'Start Move-Out Inspection'}
+              </Button>
+            ) : null}
+            {moveOut && ['DRAFT', 'IN_PROGRESS'].includes(moveOut.status) ? (
+              <Button onClick={() => navigate(paths.inspectionWizard(moveOut.id))}>
+                Continue Move-Out Inspection
+              </Button>
+            ) : null}
+            {moveOut?.status === 'COMPLETED' ? (
+              <>
+                <Button onClick={() => navigate(paths.comparison(tenancy.id))}>
+                  View Comparison
+                </Button>
+                <Button variant="secondary" onClick={() => navigate(paths.settlement(tenancy.id))}>
+                  Settlement & Deductions
+                </Button>
+              </>
+            ) : null}
+          </div>
+        </Card>
+      ) : null}
 
       <Card>
         <h2 className="font-bold text-ink">Rental Details</h2>

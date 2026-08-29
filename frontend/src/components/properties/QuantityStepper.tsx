@@ -10,6 +10,7 @@ type QuantityStepperProps = {
   min?: number
   max?: number
   className?: string
+  disabled?: boolean
 }
 
 export function QuantityStepper({
@@ -19,6 +20,7 @@ export function QuantityStepper({
   min = 0,
   max = ROOM_MAX,
   className,
+  disabled,
 }: QuantityStepperProps) {
   const decrease = () => onChange(Math.max(min, value - 1))
   const increase = () => onChange(Math.min(max, value + 1))
@@ -38,7 +40,7 @@ export function QuantityStepper({
           size="icon"
           className="h-11 w-11 shrink-0"
           onClick={decrease}
-          disabled={value <= min}
+          disabled={disabled || value <= min}
           aria-label={`Decrease ${label}`}
         >
           <Minus className="h-4 w-4" />
@@ -56,6 +58,7 @@ export function QuantityStepper({
             onChange(Math.max(min, Math.min(max, next)))
           }}
           className="h-11 w-14 rounded-xl border border-border bg-surface-muted text-center text-sm font-bold text-ink focus:border-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-100"
+          disabled={disabled}
         />
         <Button
           type="button"
@@ -63,7 +66,7 @@ export function QuantityStepper({
           size="icon"
           className="h-11 w-11 shrink-0"
           onClick={increase}
-          disabled={value >= max}
+          disabled={disabled || value >= max}
           aria-label={`Increase ${label}`}
         >
           <Plus className="h-4 w-4" />

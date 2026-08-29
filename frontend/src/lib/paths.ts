@@ -22,13 +22,19 @@ export function appPaths(role: UserRole) {
     tenancy: (id: string) => `/owner/tenancies/${id}`,
     rental: '/tenant/rental',
     inspections: `${base}/inspections`,
-    inspectionMoveIn: `${base}/inspections/move-in`,
-    inspectionWizard: `${base}/inspections/wizard`,
+    inspectionMoveIn: (tenancyId?: string) =>
+      `${base}/inspections/move-in${tenancyId ? `?tenancyId=${tenancyId}` : ''}`,
+    inspectionWizard: (inspectionId: string) =>
+      `${base}/inspections/wizard?inspectionId=${inspectionId}`,
     inspectionMoveOut: `${base}/inspections/move-out`,
-    inspectionReview: `${base}/inspections/review`,
-    inspectionApproval: `${base}/inspections/approval`,
-    comparison: `${base}/inspections/comparison`,
-    settlement: `${base}/settlement`,
+    inspectionReview: (inspectionId: string) =>
+      `${base}/inspections/review?inspectionId=${inspectionId}`,
+    inspectionApproval: (inspectionId?: string) =>
+      `${base}/inspections/approval${inspectionId ? `?inspectionId=${inspectionId}` : ''}`,
+    comparison: (tenancyId?: string) =>
+      `${base}/inspections/comparison${tenancyId ? `?tenancyId=${tenancyId}` : ''}`,
+    settlement: (tenancyId?: string) =>
+      `${base}/settlement${tenancyId ? `?tenancyId=${tenancyId}` : ''}`,
     settlementSign: `${base}/settlement/sign`,
     settlementComplete: `${base}/settlement/complete`,
     reports: `${base}/reports`,

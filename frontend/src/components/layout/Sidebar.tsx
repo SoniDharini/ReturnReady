@@ -37,7 +37,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           { to: paths.dashboard, label: 'Dashboard', icon: LayoutDashboard },
           { to: paths.rental, label: 'My Rental', icon: Home },
           { to: paths.inspections, label: 'Inspections', icon: ClipboardCheck },
-          { to: paths.settlement, label: 'Settlement', icon: Receipt },
+          { to: paths.settlement(), label: 'Settlement', icon: Receipt },
           { to: paths.reports, label: 'Reports', icon: FileText },
         ]
 

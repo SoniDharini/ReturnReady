@@ -1,0 +1,58 @@
+import mongoose from 'mongoose';
+
+const DEDUCTION_STATUSES = ['PROPOSED', 'ACCEPTED', 'DISPUTED', 'RESOLVED', 'CANCELLED'];
+
+const deductionSchema = new mongoose.Schema(
+  {
+    tenancyId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Tenancy',
+      required: true,
+      index: true,
+    },
+    propertyId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Property',
+      required: true,
+    },
+    damageAssessmentId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'DamageAssessment',
+      default: null,
+    },
+    inspectionItemId: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+    },
+    title: { type: String, required: true, trim: true },
+    reason: { type: String, trim: true, default: '' },
+    description: { type: String, trim: true, default: '' },
+    amount: { type: Number, required: true, min: 0 },
+    status: {
+      type: String,
+      enum: DEDUCTION_STATUSES,
+      default: 'PROPOSED',
+    },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+    },
+  },
+  { timestamps: true },
+);
+
+deductionSchema.set('toJSON', {
+  transform(_doc, ret) {
+    ret.id = ret._id.toString();
+    ret.tenancyId = ret.tenancyId?.toString?.() || ret.tenancyId;
+    ret.propertyId = ret.propertyId?.toString?.() || ret.propertyId;
+    ret.createdBy = ret.createdBy?.toString?.() || ret.createdBy;
+    delete ret._id;
+    delete ret.__v;
+    return ret;
+  },
+});
+
+export const Deduction = mongoose.model('Deduction', deductionSchema);
+export { DEDUCTION_STATUSES };
