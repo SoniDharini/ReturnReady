@@ -5,9 +5,11 @@
   "type": "module",
   "main": "src/server.js",
   "scripts": {
+    "predev": "node scripts/free-port.mjs",
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
-    "smoke:auth": "node scripts/smoke-auth.mjs"
+    "smoke:auth": "node scripts/smoke-auth.mjs",
+    "smoke:property": "node scripts/smoke-property.mjs"
   },
   "engines": {
     "node": ">=18"
@@ -30,6 +32,7 @@
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.12.1",
+    "multer": "^2.2.0",
     "zod": "^3.24.2"
   }
 }

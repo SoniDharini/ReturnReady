@@ -56,3 +56,58 @@ export async function remove(req, res, next) {
     return next(error);
   }
 }
+
+export async function uploadImages(req, res, next) {
+  try {
+    const files = req.files || [];
+    const captions = req.body?.captions;
+    const property = await propertyService.addPropertyImages(
+      req.user.id,
+      req.params.id,
+      files,
+      captions,
+    );
+    return res.status(201).json({
+      success: true,
+      message: 'Images uploaded successfully',
+      data: { property },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function updateImage(req, res, next) {
+  try {
+    const property = await propertyService.updatePropertyImageCaption(
+      req.user.id,
+      req.params.id,
+      req.params.imageId,
+      req.body.caption,
+    );
+    return res.status(200).json({
+      success: true,
+      message: 'Image updated successfully',
+      data: { property },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function removeImage(req, res, next) {
+  try {
+    const property = await propertyService.deletePropertyImage(
+      req.user.id,
+      req.params.id,
+      req.params.imageId,
+    );
+    return res.status(200).json({
+      success: true,
+      message: 'Image removed successfully',
+      data: { property },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}

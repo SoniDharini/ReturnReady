@@ -37,6 +37,17 @@ export function errorHandler(err, _req, res, _next) {
     message = 'Invalid or expired access token';
   }
 
+  if (err.name === 'MulterError') {
+    statusCode = 400;
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      message = 'Each image must be 5MB or smaller';
+    } else if (err.code === 'LIMIT_FILE_COUNT') {
+      message = 'Too many images in one upload';
+    } else {
+      message = err.message || 'Image upload failed';
+    }
+  }
+
   if (process.env.NODE_ENV !== 'production') {
     console.error('[API Error]', statusCode, message, err.stack);
   }

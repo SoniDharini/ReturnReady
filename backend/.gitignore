@@ -21,9 +21,10 @@ dist/
 coverage/
 .nyc_output/
 
-# Runtime / temp
+# Runtime / temp / uploads
 tmp/
 temp/
+uploads/
 *.tmp
 *.pid
 *.seed

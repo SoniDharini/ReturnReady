@@ -16,6 +16,7 @@ export function appPaths(role: UserRole) {
     properties: '/owner/properties',
     propertyNew: '/owner/properties/new',
     property: (id: string) => `/owner/properties/${id}`,
+    propertyEdit: (id: string) => `/owner/properties/${id}/edit`,
     tenancies: '/owner/tenancies',
     tenancyNew: '/owner/tenancies/new',
     tenancy: (id: string) => `/owner/tenancies/${id}`,

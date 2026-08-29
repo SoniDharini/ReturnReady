@@ -12,6 +12,7 @@ import { OwnerDashboard } from '@/pages/dashboard/OwnerDashboard'
 import { TenantDashboard } from '@/pages/dashboard/TenantDashboard'
 import { PropertiesPage } from '@/pages/properties/PropertiesPage'
 import { AddPropertyPage } from '@/pages/properties/AddPropertyPage'
+import { EditPropertyPage } from '@/pages/properties/EditPropertyPage'
 import { PropertyDetailsPage } from '@/pages/properties/PropertyDetailsPage'
 import { TenanciesPage } from '@/pages/tenancies/TenanciesPage'
 import { CreateTenancyPage } from '@/pages/tenancies/CreateTenancyPage'
@@ -70,6 +71,7 @@ export default function App() {
                 <Route path="dashboard" element={<OwnerDashboard />} />
                 <Route path="properties" element={<PropertiesPage />} />
                 <Route path="properties/new" element={<AddPropertyPage />} />
+                <Route path="properties/:id/edit" element={<EditPropertyPage />} />
                 <Route path="properties/:id" element={<PropertyDetailsPage />} />
                 <Route path="tenancies" element={<TenanciesPage />} />
                 <Route path="tenancies/new" element={<CreateTenancyPage />} />

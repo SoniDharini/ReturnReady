@@ -1,9 +1,43 @@
 import { z } from 'zod';
 import { ApiError } from '../utils/ApiError.js';
 
+const roomTypeEnum = z.enum([
+  'BEDROOM',
+  'BATHROOM',
+  'LIVING_ROOM',
+  'KITCHEN',
+  'BALCONY',
+  'DINING_ROOM',
+  'CUSTOM',
+]);
+
+const inventoryItemSchema = z.object({
+  name: z.string().trim().min(1),
+  quantity: z.coerce.number().min(0).default(1),
+  description: z.string().optional().default(''),
+});
+
+const roomSchema = z.object({
+  id: z.string().optional(),
+  name: z.string().trim().min(1),
+  type: roomTypeEnum.optional().default('CUSTOM'),
+  isCustom: z.boolean().optional().default(false),
+  items: z.array(inventoryItemSchema).optional().default([]),
+});
+
+const imageMetaSchema = z.object({
+  id: z.string().optional(),
+  imageUrl: z.string().trim().min(1),
+  caption: z.string().trim().optional().default(''),
+  uploadedAt: z.union([z.string(), z.date()]).optional(),
+  uploadedBy: z.string().optional(),
+});
+
 export const propertySchema = z.object({
   name: z.string().trim().min(2).max(120),
-  type: z.enum(['apartment', 'villa', 'studio', 'house']).default('apartment'),
+  type: z
+    .enum(['apartment', 'house', 'villa', 'pg', 'office', 'studio', 'other'])
+    .default('apartment'),
   address: z.string().trim().min(2),
   city: z.string().trim().min(2),
   state: z.string().trim().min(2),
@@ -11,24 +45,12 @@ export const propertySchema = z.object({
   rooms: z.coerce.number().int().min(0).optional().default(0),
   bathrooms: z.coerce.number().int().min(0).optional().default(0),
   status: z.enum(['Draft', 'Active']).optional().default('Active'),
-  roomList: z
-    .array(
-      z.object({
-        name: z.string().trim().min(1),
-        items: z
-          .array(
-            z.object({
-              name: z.string().trim().min(1),
-              quantity: z.coerce.number().min(0).default(1),
-              description: z.string().optional().default(''),
-            }),
-          )
-          .optional()
-          .default([]),
-      }),
-    )
-    .optional()
-    .default([]),
+  roomList: z.array(roomSchema).optional().default([]),
+  images: z.array(imageMetaSchema).optional().default([]),
+});
+
+export const imageCaptionSchema = z.object({
+  caption: z.string().trim().max(200).optional().default(''),
 });
 
 export const tenancySchema = z.object({

@@ -1,3 +1,34 @@
+export type RoomType =
+  | 'BEDROOM'
+  | 'BATHROOM'
+  | 'LIVING_ROOM'
+  | 'KITCHEN'
+  | 'BALCONY'
+  | 'DINING_ROOM'
+  | 'CUSTOM'
+
+export type PropertyRoom = {
+  id?: string
+  key?: string
+  name: string
+  type: RoomType
+  isCustom: boolean
+  items: Array<{
+    id?: string
+    name: string
+    quantity: number
+    description?: string
+  }>
+}
+
+export type PropertyImage = {
+  id?: string
+  imageUrl: string
+  caption?: string
+  uploadedBy?: string
+  uploadedAt?: string
+}
+
 export type UserRole = 'OWNER' | 'TENANT'
 
 export type AuthUser = {
@@ -33,11 +64,8 @@ export type Property = {
   bathrooms: number
   status: string
   activeTenancy: string | null
-  roomList?: Array<{
-    id?: string
-    name: string
-    items: Array<{ name: string; quantity: number; description?: string }>
-  }>
+  roomList?: PropertyRoom[]
+  images?: PropertyImage[]
 }
 
 export type Tenancy = {
