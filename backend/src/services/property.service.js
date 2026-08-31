@@ -1,6 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import { Property } from '../models/Property.js';
+import { Tenancy } from '../models/Tenancy.js';
+import { Inspection } from '../models/Inspection.js';
 import { ApiError } from '../utils/ApiError.js';
 import { PROPERTY_UPLOADS_DIR } from '../middleware/upload.middleware.js';
 
@@ -88,8 +90,32 @@ export async function updatePropertyForOwner(ownerId, propertyId, payload) {
 }
 
 export async function deletePropertyForOwner(ownerId, propertyId) {
-  const property = await Property.findOneAndDelete({ _id: propertyId, ownerId });
+  const property = await Property.findOne({ _id: propertyId, ownerId });
   if (!property) throw new ApiError(404, 'Property not found');
+
+  const activeTenancy = await Tenancy.findOne({
+    propertyId: property._id,
+    inviteStatus: 'Accepted',
+    status: { $in: ['Active', 'Settlement Pending', 'Invitation Sent'] },
+    stage: { $nin: ['complete'] },
+  });
+
+  if (activeTenancy) {
+    throw new ApiError(
+      400,
+      'This property currently has an active tenancy. Complete or close the tenancy before deleting the property.',
+    );
+  }
+
+  const hasInspections = await Inspection.exists({ propertyId: property._id });
+  const hasTenancyHistory = await Tenancy.exists({ propertyId: property._id });
+
+  if (hasInspections || hasTenancyHistory) {
+    property.status = 'Archived';
+    property.activeTenancy = null;
+    await property.save();
+    return { archived: true, property: property.toJSON() };
+  }
 
   for (const image of property.images || []) {
     const filePath = resolveStoredFile(image.imageUrl);
@@ -102,7 +128,8 @@ export async function deletePropertyForOwner(ownerId, propertyId) {
     }
   }
 
-  return true;
+  await property.deleteOne();
+  return { archived: false, property: null };
 }
 
 export async function addPropertyImages(ownerId, propertyId, files = [], captions = []) {

@@ -50,8 +50,14 @@ export async function update(req, res, next) {
 
 export async function remove(req, res, next) {
   try {
-    await propertyService.deletePropertyForOwner(req.user.id, req.params.id);
-    return res.status(200).json({ success: true, message: 'Property deleted successfully' });
+    const result = await propertyService.deletePropertyForOwner(req.user.id, req.params.id);
+    return res.status(200).json({
+      success: true,
+      message: result.archived
+        ? 'Property archived to preserve rental history'
+        : 'Property deleted successfully',
+      data: result,
+    });
   } catch (error) {
     return next(error);
   }

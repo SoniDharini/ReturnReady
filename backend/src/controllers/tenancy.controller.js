@@ -45,6 +45,40 @@ export async function cancelInvite(req, res, next) {
   }
 }
 
+export async function update(req, res, next) {
+  try {
+    const tenancy = await tenancyService.updateTenancyForOwner(
+      req.user.id,
+      req.params.id,
+      req.body,
+    );
+    return res.status(200).json({
+      success: true,
+      message: 'Tenancy updated',
+      data: { tenancy },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function startMoveOut(req, res, next) {
+  try {
+    const tenancy = await tenancyService.startMoveOutForOwner(
+      req.user.id,
+      req.params.id,
+      req.body,
+    );
+    return res.status(200).json({
+      success: true,
+      message: 'Move-out started',
+      data: { tenancy },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 export async function resendInvite(req, res, next) {
   try {
     const tenancy = await tenancyService.resendInvitation(req.user.id, req.params.id);

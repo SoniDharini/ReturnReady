@@ -1,6 +1,7 @@
 import { Property } from '../models/Property.js';
 import { Tenancy } from '../models/Tenancy.js';
 import { User } from '../models/User.js';
+import { Inspection } from '../models/Inspection.js';
 import { ApiError } from '../utils/ApiError.js';
 import {
   generateAccessToken,
@@ -10,6 +11,47 @@ import bcrypt from 'bcryptjs';
 
 function formatTenancy(doc) {
   return doc.toJSON();
+}
+
+function parseDate(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
+}
+
+function recordDateChange(tenancy, field, oldValue, newValue, reason, userId) {
+  if (oldValue === newValue) return;
+  tenancy.dateHistory.push({
+    field,
+    oldValue: oldValue || '',
+    newValue: newValue || '',
+    reason: reason || '',
+    changedBy: userId,
+    changedAt: new Date(),
+  });
+}
+
+function validateMoveDates(moveIn, moveOut, actualMoveOut) {
+  const inDate = parseDate(moveIn);
+  const outDate = parseDate(moveOut);
+  const actualDate = actualMoveOut ? parseDate(actualMoveOut) : null;
+
+  if (inDate && outDate && outDate < inDate) {
+    throw new ApiError(400, 'Expected move-out must be on or after move-in date');
+  }
+  if (inDate && actualDate && actualDate < inDate) {
+    throw new ApiError(400, 'Actual move-out cannot be before move-in date');
+  }
+}
+
+async function hasLockedMoveIn(tenancyId) {
+  const locked = await Inspection.findOne({
+    tenancyId,
+    type: 'MOVE_IN',
+    status: 'LOCKED',
+  });
+  return Boolean(locked);
 }
 
 export async function listTenanciesForOwner(ownerId) {
@@ -75,6 +117,13 @@ export async function cancelInvitation(ownerId, tenancyId) {
   tenancy.inviteStatus = 'Cancelled';
   tenancy.status = 'Cancelled';
   await tenancy.save();
+
+  const property = await Property.findById(tenancy.propertyId);
+  if (property && property.activeTenancy === tenancy.tenantName) {
+    property.activeTenancy = null;
+    await property.save();
+  }
+
   return formatTenancy(tenancy);
 }
 
@@ -181,6 +230,10 @@ export async function activateTenantFromInvite({ token, password }) {
       ownerName: tenancy.ownerName,
       moveIn: tenancy.moveIn,
       moveOut: tenancy.moveOut,
+      actualMoveOut: tenancy.actualMoveOut,
+      moveOutReason: tenancy.moveOutReason,
+      occupancyStatus: tenancy.occupancyStatus,
+      stage: tenancy.stage,
       deposit: tenancy.deposit,
     },
   };
@@ -197,16 +250,20 @@ export async function getTenantAccessForUser(userId) {
   if (!tenancy) return null;
 
   if (tenancy.stage === 'complete' || tenancy.status === 'Completed') {
-    return {
-      status: 'CLOSED',
-      tenancyId: tenancy._id.toString(),
-      inviteId: tenancy.inviteToken,
-      propertyName: tenancy.propertyName,
-      ownerName: tenancy.ownerName,
-      moveIn: tenancy.moveIn,
-      moveOut: tenancy.moveOut,
-      deposit: tenancy.deposit,
-    };
+  return {
+    status: 'CLOSED',
+    tenancyId: tenancy._id.toString(),
+    inviteId: tenancy.inviteToken,
+    propertyName: tenancy.propertyName,
+    ownerName: tenancy.ownerName,
+    moveIn: tenancy.moveIn,
+    moveOut: tenancy.moveOut,
+    actualMoveOut: tenancy.actualMoveOut,
+    moveOutReason: tenancy.moveOutReason,
+    occupancyStatus: tenancy.occupancyStatus,
+    stage: tenancy.stage,
+    deposit: tenancy.deposit,
+  };
   }
 
   return {
@@ -217,6 +274,110 @@ export async function getTenantAccessForUser(userId) {
     ownerName: tenancy.ownerName,
     moveIn: tenancy.moveIn,
     moveOut: tenancy.moveOut,
+    actualMoveOut: tenancy.actualMoveOut,
+    moveOutReason: tenancy.moveOutReason,
+    moveOutNotes: tenancy.moveOutNotes,
+    occupancyStatus: tenancy.occupancyStatus,
+    stage: tenancy.stage,
     deposit: tenancy.deposit,
   };
+}
+
+export async function updateTenancyForOwner(ownerId, tenancyId, payload) {
+  const tenancy = await Tenancy.findOne({ _id: tenancyId, ownerId });
+  if (!tenancy) throw new ApiError(404, 'Tenancy not found');
+
+  const lockedMoveIn = await hasLockedMoveIn(tenancy._id);
+
+  if (payload.moveIn !== undefined) {
+    if (lockedMoveIn && payload.moveIn !== tenancy.moveIn && !payload.changeReason?.trim()) {
+      throw new ApiError(400, 'A reason is required to change move-in date after inspection is locked');
+    }
+    recordDateChange(
+      tenancy,
+      'moveIn',
+      tenancy.moveIn,
+      payload.moveIn,
+      payload.changeReason,
+      ownerId,
+    );
+    tenancy.moveIn = payload.moveIn;
+  }
+
+  if (payload.moveOut !== undefined) {
+    recordDateChange(
+      tenancy,
+      'moveOut',
+      tenancy.moveOut,
+      payload.moveOut,
+      payload.changeReason,
+      ownerId,
+    );
+    tenancy.moveOut = payload.moveOut;
+  }
+
+  if (payload.actualMoveOut !== undefined) {
+    recordDateChange(
+      tenancy,
+      'actualMoveOut',
+      tenancy.actualMoveOut,
+      payload.actualMoveOut,
+      payload.changeReason || payload.moveOutReason,
+      ownerId,
+    );
+    tenancy.actualMoveOut = payload.actualMoveOut;
+  }
+
+  if (payload.moveOutReason !== undefined) tenancy.moveOutReason = payload.moveOutReason;
+  if (payload.moveOutNotes !== undefined) tenancy.moveOutNotes = payload.moveOutNotes;
+  if (payload.tenantPhone !== undefined) tenancy.tenantPhone = payload.tenantPhone;
+
+  if (payload.occupancyStatus !== undefined) {
+    tenancy.occupancyStatus = payload.occupancyStatus;
+    if (payload.occupancyStatus === 'MOVED_OUT' && tenancy.stage === 'active') {
+      tenancy.stage = 'move-out';
+    }
+  }
+
+  validateMoveDates(tenancy.moveIn, tenancy.moveOut, tenancy.actualMoveOut);
+
+  await tenancy.save();
+  return formatTenancy(tenancy);
+}
+
+export async function startMoveOutForOwner(ownerId, tenancyId, payload) {
+  const tenancy = await Tenancy.findOne({ _id: tenancyId, ownerId });
+  if (!tenancy) throw new ApiError(404, 'Tenancy not found');
+
+  if (tenancy.inviteStatus !== 'Accepted') {
+    throw new ApiError(400, 'Tenant must accept the invitation before starting move-out');
+  }
+
+  if (!['active', 'move-out'].includes(tenancy.stage)) {
+    throw new ApiError(400, 'Move-out can only be started for an active tenancy');
+  }
+
+  const lockedMoveIn = await hasLockedMoveIn(tenancy._id);
+  if (!lockedMoveIn) {
+    throw new ApiError(400, 'Move-in inspection must be locked before starting move-out');
+  }
+
+  validateMoveDates(tenancy.moveIn, tenancy.moveOut, payload.actualMoveOut);
+
+  recordDateChange(
+    tenancy,
+    'actualMoveOut',
+    tenancy.actualMoveOut,
+    payload.actualMoveOut,
+    payload.moveOutReason,
+    ownerId,
+  );
+
+  tenancy.actualMoveOut = payload.actualMoveOut;
+  tenancy.moveOutReason = payload.moveOutReason;
+  tenancy.moveOutNotes = payload.moveOutNotes || '';
+  tenancy.occupancyStatus = 'PREPARING_TO_MOVE_OUT';
+
+  await tenancy.save();
+  return formatTenancy(tenancy);
 }

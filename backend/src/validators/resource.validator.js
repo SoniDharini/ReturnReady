@@ -44,7 +44,7 @@ export const propertySchema = z.object({
   pin: z.string().trim().min(4).max(12),
   rooms: z.coerce.number().int().min(0).optional().default(0),
   bathrooms: z.coerce.number().int().min(0).optional().default(0),
-  status: z.enum(['Draft', 'Active']).optional().default('Active'),
+  status: z.enum(['Draft', 'Active', 'Archived']).optional().default('Active'),
   roomList: z.array(roomSchema).optional().default([]),
   images: z.array(imageMetaSchema).optional().default([]),
 });
@@ -72,6 +72,35 @@ export const activateTenantSchema = z.object({
     .regex(/[a-z]/, 'Password must include a lowercase letter')
     .regex(/[A-Z]/, 'Password must include an uppercase letter')
     .regex(/[0-9]/, 'Password must include a number'),
+});
+
+const occupancyStatusEnum = z.enum([
+  'UPCOMING',
+  'CURRENTLY_STAYING',
+  'PREPARING_TO_MOVE_OUT',
+  'MOVED_OUT',
+  'COMPLETED',
+]);
+
+export const tenancyUpdateSchema = z
+  .object({
+    moveIn: z.string().min(1).optional(),
+    moveOut: z.string().min(1).optional(),
+    actualMoveOut: z.string().min(1).nullable().optional(),
+    moveOutReason: z.string().trim().max(200).optional(),
+    moveOutNotes: z.string().trim().max(2000).optional(),
+    occupancyStatus: occupancyStatusEnum.optional(),
+    tenantPhone: z.string().trim().optional(),
+    changeReason: z.string().trim().max(500).optional(),
+  })
+  .refine((data) => Object.keys(data).length > 0, {
+    message: 'At least one field is required',
+  });
+
+export const startMoveOutSchema = z.object({
+  actualMoveOut: z.string().min(1),
+  moveOutReason: z.string().trim().min(1).max(200),
+  moveOutNotes: z.string().trim().max(2000).optional().default(''),
 });
 
 function formatZodErrors(error) {

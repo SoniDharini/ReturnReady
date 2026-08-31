@@ -71,7 +71,7 @@ const propertySchema = new mongoose.Schema(
     bathrooms: { type: Number, default: 0, min: 0 },
     status: {
       type: String,
-      enum: ['Draft', 'Active'],
+      enum: ['Draft', 'Active', 'Archived'],
       default: 'Active',
     },
     roomList: { type: [roomSchema], default: [] },

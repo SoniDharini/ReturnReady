@@ -61,6 +61,30 @@ const tenancySchema = new mongoose.Schema(
       enum: ['invitation', 'move-in', 'active', 'move-out', 'settlement', 'complete'],
       default: 'invitation',
     },
+    actualMoveOut: { type: String, default: null },
+    moveOutReason: { type: String, trim: true, default: '' },
+    moveOutNotes: { type: String, trim: true, default: '' },
+    occupancyStatus: {
+      type: String,
+      enum: [
+        'UPCOMING',
+        'CURRENTLY_STAYING',
+        'PREPARING_TO_MOVE_OUT',
+        'MOVED_OUT',
+        'COMPLETED',
+      ],
+      default: 'UPCOMING',
+    },
+    dateHistory: [
+      {
+        field: { type: String, required: true },
+        oldValue: { type: String, default: '' },
+        newValue: { type: String, default: '' },
+        reason: { type: String, default: '' },
+        changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        changedAt: { type: Date, default: Date.now },
+      },
+    ],
   },
   { timestamps: true },
 );

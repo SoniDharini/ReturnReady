@@ -37,3 +37,28 @@ export async function resendInvitation(id: string) {
   const { data } = await api.post<OneResponse>(`/tenancies/${id}/resend-invite`)
   return data.data.tenancy
 }
+
+export async function updateTenancy(
+  id: string,
+  payload: Partial<{
+    moveIn: string
+    moveOut: string
+    actualMoveOut: string | null
+    moveOutReason: string
+    moveOutNotes: string
+    occupancyStatus: string
+    tenantPhone: string
+    changeReason: string
+  }>,
+) {
+  const { data } = await api.patch<OneResponse>(`/tenancies/${id}`, payload)
+  return data.data.tenancy
+}
+
+export async function startMoveOut(
+  id: string,
+  payload: { actualMoveOut: string; moveOutReason: string; moveOutNotes?: string },
+) {
+  const { data } = await api.post<OneResponse>(`/tenancies/${id}/start-move-out`, payload)
+  return data.data.tenancy
+}

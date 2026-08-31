@@ -63,7 +63,12 @@ export async function updateProperty(
 }
 
 export async function deleteProperty(id: string) {
-  await api.delete(`/properties/${id}`)
+  const { data } = await api.delete<{
+    success: boolean
+    message: string
+    data: { archived: boolean }
+  }>(`/properties/${id}`)
+  return { archived: data.data.archived, message: data.message }
 }
 
 export async function uploadPropertyImages(

@@ -31,6 +31,21 @@ export type PropertyImage = {
 
 export type UserRole = 'OWNER' | 'TENANT'
 
+export type OccupancyStatus =
+  | 'UPCOMING'
+  | 'CURRENTLY_STAYING'
+  | 'PREPARING_TO_MOVE_OUT'
+  | 'MOVED_OUT'
+  | 'COMPLETED'
+
+export type TenancyStage =
+  | 'invitation'
+  | 'move-in'
+  | 'active'
+  | 'move-out'
+  | 'settlement'
+  | 'complete'
+
 export type AuthUser = {
   id: string
   name: string
@@ -48,6 +63,11 @@ export type AuthUser = {
     ownerName: string
     moveIn: string
     moveOut: string
+    actualMoveOut?: string | null
+    moveOutReason?: string
+    moveOutNotes?: string
+    occupancyStatus?: OccupancyStatus
+    stage?: TenancyStage
     deposit: number
   }
 }
@@ -84,7 +104,11 @@ export type Tenancy = {
   inviteStatus: 'Pending' | 'Accepted' | 'Expired' | 'Cancelled'
   inviteSentAt: string
   inviteToken: string
-  stage: 'invitation' | 'move-in' | 'active' | 'move-out' | 'settlement' | 'complete'
+  stage: TenancyStage
+  actualMoveOut?: string | null
+  moveOutReason?: string
+  moveOutNotes?: string
+  occupancyStatus?: OccupancyStatus
 }
 
 export type Invitation = {

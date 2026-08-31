@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { PageHeader } from '@/components/shared/PageHeader'
-import { Timeline } from '@/components/shared/Timeline'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
@@ -10,56 +9,42 @@ import { formatCurrency } from '@/lib/utils'
 import { useAppPaths } from '@/hooks/useAppPaths'
 import { listTenancyInspections } from '@/services/inspection.service'
 import type { Inspection } from '@/types'
+import {
+  formatDisplayDate,
+  getOccupancyLabel,
+  getTenantAction,
+} from '@/lib/tenancyContext'
 
 export function MyRentalPage() {
-  const navigate = useNavigate()
   const paths = useAppPaths()
+  const navigate = useNavigate()
   const { user } = useAuth()
   const access = user?.tenantAccess
   const [inspections, setInspections] = useState<Inspection[]>([])
 
   useEffect(() => {
     if (!access?.tenancyId) return
-    void listTenancyInspections(access.tenancyId).then(setInspections).catch(() => setInspections([]))
+    void listTenancyInspections(access.tenancyId)
+      .then(setInspections)
+      .catch(() => setInspections([]))
   }, [access?.tenancyId])
 
-  const moveIn = inspections.find((i) => i.type === 'MOVE_IN')
-  const moveOut = inspections.find((i) => i.type === 'MOVE_OUT')
-  const isActive = moveIn?.status === 'LOCKED'
+  const tenancyLike = access
+    ? {
+        id: access.tenancyId,
+        stage: access.stage || 'move-in',
+        occupancyStatus: access.occupancyStatus,
+        status: access.status === 'ACTIVE' ? 'Active' : access.status,
+        actualMoveOut: access.actualMoveOut,
+        moveOutReason: access.moveOutReason,
+      }
+    : null
 
-  const timelineSteps = [
-    { id: '1', label: 'Invitation', status: 'complete' as const },
-    {
-      id: '2',
-      label: 'Move-In',
-      status: moveIn?.status === 'LOCKED' ? ('complete' as const) : ('current' as const),
-    },
-    {
-      id: '3',
-      label: 'Active Rental',
-      status: isActive && !moveOut ? ('current' as const) : isActive ? ('complete' as const) : ('upcoming' as const),
-    },
-    {
-      id: '4',
-      label: 'Move-Out',
-      status:
-        moveOut?.status === 'COMPLETED'
-          ? ('complete' as const)
-          : moveOut
-            ? ('current' as const)
-            : ('upcoming' as const),
-    },
-    {
-      id: '5',
-      label: 'Settlement',
-      status: moveOut?.status === 'COMPLETED' ? ('current' as const) : ('upcoming' as const),
-    },
-    { id: '6', label: 'Complete', status: 'upcoming' as const },
-  ]
+  const action = getTenantAction(tenancyLike, inspections, paths)
 
   return (
     <div className="space-y-6">
-      <PageHeader title="My Rental" description="Your current tenancy and handover status." />
+      <PageHeader title="My Rental" description="Your current tenancy information." />
 
       <Card>
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -67,66 +52,51 @@ export function MyRentalPage() {
             <h2 className="text-xl font-bold text-ink">{access?.propertyName}</h2>
             <p className="mt-1 text-sm text-ink-secondary">Owner: {access?.ownerName}</p>
           </div>
-          <Badge status={isActive ? 'Active' : 'Move-In'}>
-            {isActive ? 'Active' : 'Move-In Pending'}
-          </Badge>
+          <Badge status="Active">{getOccupancyLabel(tenancyLike)}</Badge>
         </div>
-        <dl className="mt-6 grid gap-4 text-sm sm:grid-cols-3">
+        <dl className="mt-6 grid gap-4 text-sm sm:grid-cols-2">
           <div>
-            <dt className="text-ink-muted">Rental Period</dt>
-            <dd className="mt-1 font-semibold">
-              {access?.moveIn} → {access?.moveOut}
-            </dd>
+            <dt className="text-ink-muted">Move-In</dt>
+            <dd className="mt-1 font-semibold">{formatDisplayDate(access?.moveIn)}</dd>
           </div>
+          <div>
+            <dt className="text-ink-muted">Expected Move-Out</dt>
+            <dd className="mt-1 font-semibold">{formatDisplayDate(access?.moveOut)}</dd>
+          </div>
+          {access?.actualMoveOut ? (
+            <div>
+              <dt className="text-ink-muted">Actual Move-Out</dt>
+              <dd className="mt-1 font-semibold">{formatDisplayDate(access.actualMoveOut)}</dd>
+            </div>
+          ) : null}
+          {access?.moveOutReason ? (
+            <div>
+              <dt className="text-ink-muted">Reason</dt>
+              <dd className="mt-1 font-semibold">{access.moveOutReason}</dd>
+            </div>
+          ) : null}
           <div>
             <dt className="text-ink-muted">Security Deposit</dt>
             <dd className="mt-1 font-semibold">{formatCurrency(access?.deposit || 0)}</dd>
           </div>
-          <div>
-            <dt className="text-ink-muted">Move-In Inspection</dt>
-            <dd className="mt-1 font-semibold">
-              {moveIn?.status === 'LOCKED'
-                ? 'Completed ✓'
-                : moveIn?.status === 'APPROVAL_PENDING'
-                  ? 'Awaiting Approval'
-                  : moveIn
-                    ? 'In Progress'
-                    : 'Not started'}
-            </dd>
-          </div>
         </dl>
-        {isActive ? (
-          <p className="mt-4 text-sm text-ink-secondary">
-            Next step: Move-out inspection will become available during handover.
-          </p>
+        {access?.actualMoveOut && access.actualMoveOut !== access.moveOut ? (
+          <p className="mt-4 text-xs text-ink-muted">Updated by property owner</p>
         ) : null}
       </Card>
 
-      <Card>
-        <h2 className="mb-4 text-lg font-bold text-ink">Handover Timeline</h2>
-        <Timeline steps={timelineSteps} />
-      </Card>
-
-      <div className="flex flex-wrap gap-2">
-        {moveIn?.status === 'APPROVAL_PENDING' ? (
-          <Button onClick={() => navigate(paths.inspectionApproval(moveIn.id))}>
-            Approve Move-In Inspection
+      <Card className={action.kind === 'action' ? 'border-brand-200 bg-brand-50/40' : ''}>
+        <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+          {action.kind === 'action' ? 'Action required' : 'Status'}
+        </p>
+        <h3 className="mt-2 text-lg font-bold text-ink">{action.title}</h3>
+        <p className="mt-1 text-sm text-ink-secondary">{action.description}</p>
+        {action.label && action.path ? (
+          <Button className="mt-4" onClick={() => navigate(action.path!)}>
+            {action.label}
           </Button>
         ) : null}
-        <Button variant="secondary" onClick={() => navigate(paths.inspectionMoveIn(access?.tenancyId))}>
-          View Inspections
-        </Button>
-        {moveOut?.status === 'COMPLETED' && access?.tenancyId ? (
-          <>
-            <Button onClick={() => navigate(paths.comparison(access.tenancyId))}>
-              View Comparison
-            </Button>
-            <Button variant="secondary" onClick={() => navigate(paths.settlement(access.tenancyId))}>
-              View Proposed Deductions
-            </Button>
-          </>
-        ) : null}
-      </div>
+      </Card>
     </div>
   )
 }

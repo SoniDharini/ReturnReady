@@ -550,6 +550,7 @@ export async function approveInspection(user, inspectionId) {
     if (tenancy) {
       tenancy.stage = 'active';
       tenancy.status = 'Active';
+      tenancy.occupancyStatus = 'CURRENTLY_STAYING';
       await tenancy.save();
     }
   }

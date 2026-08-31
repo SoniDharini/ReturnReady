@@ -25,7 +25,7 @@ export function PropertiesPage() {
     setLoading(true)
     setError('')
     try {
-      setProperties(await listProperties())
+      setProperties((await listProperties()).filter((p) => p.status !== 'Archived'))
     } catch (err) {
       setError(getErrorMessage(err, 'Unable to load properties'))
     } finally {
@@ -120,7 +120,17 @@ export function PropertiesPage() {
                     </Button>
                   </div>
                   {menuId === property.id ? (
-                    <div className="absolute right-5 z-10 mt-1 w-36 rounded-xl border border-border bg-white p-1 shadow-elevated">
+                    <div className="absolute right-5 z-10 mt-1 w-40 rounded-xl border border-border bg-white p-1 shadow-elevated">
+                      <button
+                        type="button"
+                        className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-surface-muted"
+                        onClick={() => {
+                          navigate(paths.propertyEdit(property.id))
+                          setMenuId(null)
+                        }}
+                      >
+                        Edit Property
+                      </button>
                       <button
                         type="button"
                         className="w-full rounded-lg px-3 py-2 text-left text-sm text-danger hover:bg-danger-bg"
@@ -129,7 +139,7 @@ export function PropertiesPage() {
                           setMenuId(null)
                         }}
                       >
-                        Delete
+                        Delete Property
                       </button>
                     </div>
                   ) : null}
@@ -167,7 +177,11 @@ export function PropertiesPage() {
         open={Boolean(deleteId)}
         onClose={() => setDeleteId(null)}
         title="Delete Property?"
-        description="This property will be permanently removed if it has no active tenancy."
+        description={
+          deleteId
+            ? `You are about to delete ${properties.find((p) => p.id === deleteId)?.name || 'this property'}. Properties with rental history will be archived instead of permanently deleted.`
+            : ''
+        }
         footer={
           <>
             <Button variant="secondary" onClick={() => setDeleteId(null)}>
@@ -178,8 +192,13 @@ export function PropertiesPage() {
               onClick={async () => {
                 if (!deleteId) return
                 try {
-                  await deleteProperty(deleteId)
+                  const result = await deleteProperty(deleteId)
                   setDeleteId(null)
+                  setError(
+                    result.archived
+                      ? 'Property archived to preserve rental history.'
+                      : '',
+                  )
                   await load()
                 } catch (err) {
                   setError(getErrorMessage(err, 'Unable to delete property'))

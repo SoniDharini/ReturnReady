@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
@@ -16,6 +16,8 @@ const steps = ['Tenant', 'Rental Details', 'Review']
 export function CreateTenancyPage() {
   const navigate = useNavigate()
   const paths = useAppPaths()
+  const [searchParams] = useSearchParams()
+  const preselectedPropertyId = searchParams.get('propertyId') || ''
   const [step, setStep] = useState(0)
   const [properties, setProperties] = useState<Property[]>([])
   const [propertyId, setPropertyId] = useState('')
@@ -35,10 +37,14 @@ export function CreateTenancyPage() {
     void listProperties()
       .then((data) => {
         setProperties(data)
-        if (data[0]) setPropertyId(data[0].id)
+        if (preselectedPropertyId) {
+          setPropertyId(preselectedPropertyId)
+        } else if (data[0]) {
+          setPropertyId(data[0].id)
+        }
       })
       .catch((err) => setError(getErrorMessage(err)))
-  }, [])
+  }, [preselectedPropertyId])
 
   const selected = properties.find((p) => p.id === propertyId)
 
