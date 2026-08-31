@@ -18,6 +18,7 @@ VITE_API_URL=http://localhost:5000/api
 Start the backend first (`cd backend && npm run dev`), then:
 
 ```bash
+cd backend
 npm run dev
 ```
 
