@@ -102,12 +102,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             (mapped.tenantAccess?.status === 'CLOSED' ||
               mapped.tenantAccess?.status === 'REVOKED')
           ) {
+            const q = new URLSearchParams({
+              property: mapped.tenantAccess.propertyName || '',
+              tenancyId: mapped.tenantAccess.tenancyId,
+            })
             return {
               ok: false,
               error: 'ACCESS_CLOSED',
-              redirectTo: `/access-closed?property=${encodeURIComponent(
-                mapped.tenantAccess.propertyName || '',
-              )}`,
+              redirectTo: `/access-closed?${q.toString()}`,
             }
           }
 

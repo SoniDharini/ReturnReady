@@ -353,11 +353,21 @@ export type Deduction = {
   damageAssessmentId?: string | null
   inspectionItemId?: string | null
   title: string
+  category?: string
   reason: string
   description: string
   amount: number
+  originalAmount?: number
+  resolvedAmount?: number | null
+  resolutionType?: 'CANCEL' | 'MODIFY' | 'MAINTAIN' | null
+  resolutionNotes?: string
   status: DeductionStatus
   createdBy: string
+  reviewedBy?: string | null
+  reviewedAt?: string | null
+  resolvedBy?: string | null
+  resolvedAt?: string | null
+  submittedForReviewAt?: string | null
   createdAt?: string
 }
 
@@ -366,4 +376,133 @@ export type DeductionSummary = {
   totalProposedDeductions: number
   projectedRefund: number
   exceedsDeposit: boolean
+}
+
+export type SettlementStatus =
+  | 'DRAFT'
+  | 'UNDER_REVIEW'
+  | 'DISPUTED'
+  | 'READY_FOR_APPROVAL'
+  | 'READY_FOR_SIGNATURE'
+  | 'COMPLETED'
+
+export type SettlementFinancials = {
+  securityDeposit: number
+  acceptedDeductionTotal: number
+  disputedDeductionTotal: number
+  proposedDeductionTotal: number
+  finalDeductionTotal: number
+  projectedRefund: number
+  finalRefund: number | null
+  exceedsDeposit: boolean
+  allResolved: boolean
+  hasOpenDisputes: boolean
+  hasPendingProposed: boolean
+}
+
+export type SettlementRecord = {
+  id: string
+  tenancyId: string
+  propertyId: string
+  securityDeposit: number
+  proposedDeductionTotal: number
+  acceptedDeductionTotal: number
+  disputedDeductionTotal: number
+  finalDeductionTotal: number
+  projectedRefund: number
+  finalRefund: number | null
+  status: SettlementStatus
+  ownerApproved: boolean
+  tenantApproved: boolean
+  ownerSigned: boolean
+  tenantSigned: boolean
+  completedAt?: string | null
+  createdAt?: string
+  updatedAt?: string
+}
+
+export type DisputeReason =
+  | 'DAMAGE_ALREADY_EXISTED'
+  | 'NORMAL_WEAR_AND_TEAR'
+  | 'AMOUNT_INCORRECT'
+  | 'INCORRECT_ITEM'
+  | 'NOT_CAUSED_BY_TENANT'
+  | 'INSUFFICIENT_EVIDENCE'
+  | 'OTHER'
+
+export type Dispute = {
+  id: string
+  tenancyId: string
+  deductionId: string
+  raisedBy: string
+  reason: DisputeReason
+  description: string
+  evidenceUrl?: string
+  status: 'OPEN' | 'UNDER_REVIEW' | 'RESOLVED' | 'CANCELLED'
+  resolutionType?: 'CANCEL' | 'MODIFY' | 'MAINTAIN' | null
+  originalAmount?: number
+  resolvedAmount?: number | null
+  resolutionNotes?: string
+  ownerResponse?: string
+  resolvedBy?: string | null
+  resolvedAt?: string | null
+  createdAt?: string
+}
+
+export type SignatureRecord = {
+  id: string
+  tenancyId: string
+  settlementId: string
+  userId: string
+  role: 'OWNER' | 'TENANT'
+  signatureUrl: string
+  signedAt: string
+}
+
+export type HandoverReport = {
+  id: string
+  tenancyId: string
+  settlementId: string
+  propertyId: string
+  type: 'FINAL_HANDOVER'
+  fileUrl: string
+  generatedAt: string
+  generatedBy: string
+  propertyName?: string
+  tenantName?: string
+  completedAt?: string
+  snapshot?: Record<string, unknown>
+}
+
+export type SettlementTenancySummary = {
+  id: string
+  propertyName: string
+  tenantName: string
+  deposit: number
+  stage: string
+  status: string
+  moveIn?: string
+  moveOut?: string
+  actualMoveOut?: string | null
+}
+
+export type SettlementData = {
+  tenancy: SettlementTenancySummary
+  deductions: Deduction[]
+  disputes: Dispute[]
+  settlement: SettlementRecord | null
+  financials: SettlementFinancials
+  signatures: SignatureRecord[]
+  report: HandoverReport | null
+}
+
+export type AppNotification = {
+  id: string
+  userId: string
+  tenancyId?: string | null
+  type: string
+  title: string
+  message: string
+  isRead: boolean
+  createdAt: string
 }

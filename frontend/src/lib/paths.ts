@@ -35,8 +35,10 @@ export function appPaths(role: UserRole) {
       `${base}/inspections/comparison${tenancyId ? `?tenancyId=${tenancyId}` : ''}`,
     settlement: (tenancyId?: string) =>
       `${base}/settlement${tenancyId ? `?tenancyId=${tenancyId}` : ''}`,
-    settlementSign: `${base}/settlement/sign`,
-    settlementComplete: `${base}/settlement/complete`,
+    settlementSign: (tenancyId?: string) =>
+      `${base}/settlement/sign${tenancyId ? `?tenancyId=${tenancyId}` : ''}`,
+    settlementComplete: (tenancyId?: string) =>
+      `${base}/settlement/complete${tenancyId ? `?tenancyId=${tenancyId}` : ''}`,
     reports: `${base}/reports`,
     settings: `${base}/settings`,
     help: `${base}/help`,

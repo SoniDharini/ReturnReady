@@ -3,22 +3,17 @@ import type {
   ComparisonData,
   DamageAssessment,
   DamageClassification,
-  Deduction,
-  DeductionSummary,
+  DisputeReason,
+  HandoverReport,
+  SettlementData,
 } from '@/types'
 
 type ComparisonResponse = { success: boolean; data: ComparisonData }
 type AssessmentsResponse = { success: boolean; data: { assessments: DamageAssessment[] } }
 type AssessmentResponse = { success: boolean; data: { assessment: DamageAssessment } }
-type DeductionsResponse = {
-  success: boolean
-  data: { deductions: Deduction[]; summary: DeductionSummary }
-}
-type DeductionResponse = {
-  success: boolean
-  data: { deduction: Deduction; summary: DeductionSummary }
-}
-type SummaryResponse = { success: boolean; data: { summary: DeductionSummary } }
+type SettlementResponse = { success: boolean; data: SettlementData }
+type ReportsResponse = { success: boolean; data: { reports: HandoverReport[] } }
+type ReportResponse = { success: boolean; data: { report: HandoverReport } }
 
 export async function getComparison(tenancyId: string) {
   const { data } = await api.get<ComparisonResponse>(
@@ -54,9 +49,16 @@ export async function deleteDamageAssessment(assessmentId: string) {
   await api.delete(`/settlement/damage-assessments/${assessmentId}`)
 }
 
-export async function listDeductions(tenancyId: string) {
-  const { data } = await api.get<DeductionsResponse>(`/settlement/tenancies/${tenancyId}/deductions`)
+export async function getSettlement(tenancyId: string) {
+  const { data } = await api.get<SettlementResponse>(
+    `/settlement/tenancies/${tenancyId}/settlement`,
+  )
   return data.data
+}
+
+/** @deprecated Use getSettlement — returns the same payload */
+export async function listDeductions(tenancyId: string) {
+  return getSettlement(tenancyId)
 }
 
 export async function createDeduction(
@@ -70,7 +72,7 @@ export async function createDeduction(
     inspectionItemId?: string | null
   },
 ) {
-  const { data } = await api.post<DeductionResponse>(
+  const { data } = await api.post<SettlementResponse>(
     `/settlement/tenancies/${tenancyId}/deductions`,
     payload,
   )
@@ -86,11 +88,88 @@ export async function updateDeduction(
     amount: number
   }>,
 ) {
-  const { data } = await api.patch<DeductionResponse>(`/settlement/deductions/${deductionId}`, payload)
-  return data.data
+  await api.patch(`/settlement/deductions/${deductionId}`, payload)
 }
 
 export async function deleteDeduction(deductionId: string) {
-  const { data } = await api.delete<SummaryResponse>(`/settlement/deductions/${deductionId}`)
-  return data.data.summary
+  await api.delete(`/settlement/deductions/${deductionId}`)
+}
+
+export async function submitDeductionsForReview(tenancyId: string) {
+  const { data } = await api.post<SettlementResponse>(
+    `/settlement/tenancies/${tenancyId}/deductions/submit`,
+  )
+  return data.data
+}
+
+export async function acceptDeduction(deductionId: string) {
+  const { data } = await api.post<SettlementResponse>(`/settlement/deductions/${deductionId}/accept`)
+  return data.data
+}
+
+export async function disputeDeduction(
+  deductionId: string,
+  payload: {
+    reason: DisputeReason
+    description?: string
+    evidenceDataUrl?: string
+  },
+) {
+  const { data } = await api.post<SettlementResponse>(
+    `/settlement/deductions/${deductionId}/dispute`,
+    payload,
+  )
+  return data.data
+}
+
+export async function resolveDispute(
+  disputeId: string,
+  payload: {
+    resolutionType: 'CANCEL' | 'MODIFY' | 'MAINTAIN'
+    resolvedAmount?: number
+    resolutionNotes?: string
+  },
+) {
+  const { data } = await api.post<SettlementResponse>(
+    `/settlement/disputes/${disputeId}/resolve`,
+    payload,
+  )
+  return data.data
+}
+
+export async function approveSettlement(tenancyId: string) {
+  const { data } = await api.post<SettlementResponse>(
+    `/settlement/tenancies/${tenancyId}/settlement/approve`,
+  )
+  return data.data
+}
+
+export async function signSettlement(tenancyId: string, signatureDataUrl: string) {
+  const { data } = await api.post<SettlementResponse>(
+    `/settlement/tenancies/${tenancyId}/settlement/sign`,
+    { signatureDataUrl },
+  )
+  return data.data
+}
+
+export async function completeTenancy(tenancyId: string) {
+  const { data } = await api.post<SettlementResponse>(`/settlement/tenancies/${tenancyId}/complete`)
+  return data.data
+}
+
+export async function generateReport(tenancyId: string) {
+  const { data } = await api.post<ReportResponse>(
+    `/settlement/tenancies/${tenancyId}/report/generate`,
+  )
+  return data.data.report
+}
+
+export async function listReports() {
+  const { data } = await api.get<ReportsResponse>('/settlement/reports')
+  return data.data.reports
+}
+
+export async function getReport(reportId: string) {
+  const { data } = await api.get<ReportResponse>(`/settlement/reports/${reportId}`)
+  return data.data.report
 }

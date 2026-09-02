@@ -17,11 +17,36 @@ export const damageAssessmentSchema = z.object({
 
 export const deductionSchema = z.object({
   title: z.string().trim().min(1).max(120),
+  category: z.string().trim().max(120).optional().default(''),
   reason: z.string().trim().max(200).optional().default(''),
   description: z.string().trim().max(2000).optional().default(''),
   amount: z.coerce.number().min(0),
   damageAssessmentId: z.string().optional().nullable(),
   inspectionItemId: z.string().optional().nullable(),
+});
+
+export const disputeSchema = z.object({
+  reason: z.enum([
+    'DAMAGE_ALREADY_EXISTED',
+    'NORMAL_WEAR_AND_TEAR',
+    'AMOUNT_INCORRECT',
+    'INCORRECT_ITEM',
+    'NOT_CAUSED_BY_TENANT',
+    'INSUFFICIENT_EVIDENCE',
+    'OTHER',
+  ]),
+  description: z.string().trim().max(2000).optional().default(''),
+  evidenceDataUrl: z.string().optional(),
+});
+
+export const resolveDisputeSchema = z.object({
+  resolutionType: z.enum(['CANCEL', 'MODIFY', 'MAINTAIN']),
+  resolvedAmount: z.coerce.number().min(0).optional(),
+  resolutionNotes: z.string().trim().max(2000).optional().default(''),
+});
+
+export const signSchema = z.object({
+  signatureDataUrl: z.string().min(20),
 });
 
 function formatZodErrors(error) {

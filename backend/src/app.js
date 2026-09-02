@@ -8,6 +8,7 @@ import tenancyRoutes from './routes/tenancy.routes.js';
 import invitationRoutes from './routes/invitation.routes.js';
 import inspectionRoutes from './routes/inspection.routes.js';
 import settlementRoutes from './routes/settlement.routes.js';
+import notificationRoutes from './routes/notification.routes.js';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware.js';
 import { UPLOADS_ROOT } from './middleware/upload.middleware.js';
 import { corsOrigin } from './config/cors.js';
@@ -45,6 +46,7 @@ app.use('/api/tenancies', tenancyRoutes);
 app.use('/api/invitations', invitationRoutes);
 app.use('/api/inspections', inspectionRoutes);
 app.use('/api/settlement', settlementRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

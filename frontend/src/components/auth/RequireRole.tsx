@@ -41,12 +41,11 @@ export function RequireTenant() {
   if (user.role !== 'TENANT') return <Navigate to={roleHome(user.role)} replace />
 
   if (user.tenantAccess?.status === 'CLOSED' || user.tenantAccess?.status === 'REVOKED') {
-    return (
-      <Navigate
-        to={`/access-closed?property=${encodeURIComponent(user.tenantAccess.propertyName)}`}
-        replace
-      />
-    )
+    const q = new URLSearchParams({
+      property: user.tenantAccess.propertyName,
+      tenancyId: user.tenantAccess.tenancyId,
+    })
+    return <Navigate to={`/access-closed?${q.toString()}`} replace />
   }
 
   if (user.tenantAccess?.status !== 'ACTIVE') {

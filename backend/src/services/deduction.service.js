@@ -2,43 +2,11 @@ import { Deduction } from '../models/Deduction.js';
 import { DamageAssessment } from '../models/DamageAssessment.js';
 import { Tenancy } from '../models/Tenancy.js';
 import { ApiError } from '../utils/ApiError.js';
-
-async function getTenancyForUser(user, tenancyId) {
-  const tenancy =
-    user.role === 'OWNER'
-      ? await Tenancy.findOne({ _id: tenancyId, ownerId: user.id })
-      : await Tenancy.findOne({
-          _id: tenancyId,
-          tenantUserId: user.id,
-          inviteStatus: 'Accepted',
-        });
-  if (!tenancy) throw new ApiError(404, 'Tenancy not found');
-  return tenancy;
-}
-
-function buildSummary(tenancy, deductions) {
-  const proposed = deductions.filter((d) => d.status === 'PROPOSED');
-  const totalProposed = proposed.reduce((sum, d) => sum + d.amount, 0);
-  const deposit = tenancy.deposit || 0;
-  const projectedRefund = Math.max(0, deposit - totalProposed);
-
-  return {
-    securityDeposit: deposit,
-    totalProposedDeductions: totalProposed,
-    projectedRefund,
-    exceedsDeposit: totalProposed > deposit,
-  };
-}
+import { calculateFinancials, getTenancyForUser } from './settlementHelpers.js';
+import { getSettlement, submitDeductionsForReview } from './settlement.service.js';
 
 export async function listDeductions(user, tenancyId) {
-  const tenancy = await getTenancyForUser(user, tenancyId);
-  const deductions = await Deduction.find({ tenancyId }).sort({ createdAt: -1 });
-  const items = deductions.map((d) => d.toJSON());
-
-  return {
-    deductions: items,
-    summary: buildSummary(tenancy, items),
-  };
+  return getSettlement(user, tenancyId);
 }
 
 export async function createDeduction(user, tenancyId, payload) {
@@ -67,9 +35,11 @@ export async function createDeduction(user, tenancyId, payload) {
     damageAssessmentId,
     inspectionItemId: payload.inspectionItemId || null,
     title: payload.title,
+    category: payload.category || payload.reason || payload.title,
     reason: payload.reason || payload.title,
     description: payload.description || '',
     amount: payload.amount,
+    originalAmount: payload.amount,
     status: 'PROPOSED',
     createdBy: user.id,
   });
@@ -81,9 +51,10 @@ export async function createDeduction(user, tenancyId, payload) {
   }
 
   const all = await Deduction.find({ tenancyId });
+  const financials = calculateFinancials(tenancy, all.map((d) => d.toJSON()));
   return {
     deduction: deduction.toJSON(),
-    summary: buildSummary(tenancy, all.map((d) => d.toJSON())),
+    financials,
   };
 }
 
@@ -108,11 +79,15 @@ export async function updateDeduction(user, deductionId, payload) {
     deduction.amount = payload.amount;
   }
 
+  if (!['PROPOSED', 'DISPUTED'].includes(deduction.status)) {
+    throw new ApiError(400, 'This deduction can no longer be edited');
+  }
+
   await deduction.save();
   const all = await Deduction.find({ tenancyId: tenancy._id });
   return {
     deduction: deduction.toJSON(),
-    summary: buildSummary(tenancy, all.map((d) => d.toJSON())),
+    financials: calculateFinancials(tenancy, all.map((d) => d.toJSON())),
   };
 }
 
@@ -127,9 +102,15 @@ export async function deleteDeduction(user, deductionId) {
   const tenancy = await Tenancy.findOne({ _id: deduction.tenancyId, ownerId: user.id });
   if (!tenancy) throw new ApiError(403, 'You do not have permission');
 
+  if (!['PROPOSED'].includes(deduction.status)) {
+    throw new ApiError(400, 'Only proposed deductions can be removed');
+  }
+
   await deduction.deleteOne();
   const all = await Deduction.find({ tenancyId: tenancy._id });
   return {
-    summary: buildSummary(tenancy, all.map((d) => d.toJSON())),
+    financials: calculateFinancials(tenancy, all.map((d) => d.toJSON())),
   };
 }
+
+export { submitDeductionsForReview };
