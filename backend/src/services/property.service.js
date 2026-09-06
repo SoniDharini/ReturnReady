@@ -5,6 +5,12 @@ import { Tenancy } from '../models/Tenancy.js';
 import { Inspection } from '../models/Inspection.js';
 import { ApiError } from '../utils/ApiError.js';
 import { PROPERTY_UPLOADS_DIR } from '../middleware/upload.middleware.js';
+import {
+  assertOwnerPropertyAccess,
+  enrichPropertiesWithAvailability,
+  enrichPropertyWithAvailability,
+  getActiveTenancyForProperty,
+} from './propertyAvailability.service.js';
 
 function normalizeRooms(roomList = []) {
   return roomList.map((room) => ({
@@ -38,13 +44,13 @@ function resolveStoredFile(imageUrl) {
 
 export async function listPropertiesForOwner(ownerId) {
   const properties = await Property.find({ ownerId }).sort({ createdAt: -1 });
-  return properties.map((p) => p.toJSON());
+  return enrichPropertiesWithAvailability(properties);
 }
 
 export async function getPropertyForOwner(ownerId, propertyId) {
   const property = await Property.findOne({ _id: propertyId, ownerId });
   if (!property) throw new ApiError(404, 'Property not found');
-  return property.toJSON();
+  return enrichPropertyWithAvailability(property);
 }
 
 export async function createPropertyForOwner(ownerId, payload) {
@@ -64,8 +70,7 @@ export async function createPropertyForOwner(ownerId, payload) {
 }
 
 export async function updatePropertyForOwner(ownerId, propertyId, payload) {
-  const existing = await Property.findOne({ _id: propertyId, ownerId });
-  if (!existing) throw new ApiError(404, 'Property not found');
+  const existing = await assertOwnerPropertyAccess(ownerId, propertyId);
 
   if (payload.name !== undefined) existing.name = payload.name;
   if (payload.type !== undefined) existing.type = payload.type;
@@ -86,24 +91,18 @@ export async function updatePropertyForOwner(ownerId, propertyId, payload) {
   }
 
   await existing.save();
-  return existing.toJSON();
+  return enrichPropertyWithAvailability(existing);
 }
 
 export async function deletePropertyForOwner(ownerId, propertyId) {
-  const property = await Property.findOne({ _id: propertyId, ownerId });
-  if (!property) throw new ApiError(404, 'Property not found');
+  const property = await assertOwnerPropertyAccess(ownerId, propertyId);
 
-  const activeTenancy = await Tenancy.findOne({
-    propertyId: property._id,
-    inviteStatus: 'Accepted',
-    status: { $in: ['Active', 'Settlement Pending', 'Invitation Sent'] },
-    stage: { $nin: ['complete'] },
-  });
+  const activeTenancy = await getActiveTenancyForProperty(property._id);
 
   if (activeTenancy) {
     throw new ApiError(
-      400,
-      'This property currently has an active tenancy. Complete or close the tenancy before deleting the property.',
+      409,
+      'This property is currently assigned to a Tenant. End the active tenancy first.',
     );
   }
 
@@ -133,8 +132,7 @@ export async function deletePropertyForOwner(ownerId, propertyId) {
 }
 
 export async function addPropertyImages(ownerId, propertyId, files = [], captions = []) {
-  const property = await Property.findOne({ _id: propertyId, ownerId });
-  if (!property) throw new ApiError(404, 'Property not found');
+  const property = await assertOwnerPropertyAccess(ownerId, propertyId);
 
   if (!files.length) {
     throw new ApiError(400, 'At least one image is required');
@@ -157,24 +155,22 @@ export async function addPropertyImages(ownerId, propertyId, files = [], caption
   }
 
   await property.save();
-  return property.toJSON();
+  return enrichPropertyWithAvailability(property);
 }
 
 export async function updatePropertyImageCaption(ownerId, propertyId, imageId, caption) {
-  const property = await Property.findOne({ _id: propertyId, ownerId });
-  if (!property) throw new ApiError(404, 'Property not found');
+  const property = await assertOwnerPropertyAccess(ownerId, propertyId);
 
   const image = property.images.id(imageId);
   if (!image) throw new ApiError(404, 'Image not found');
 
   image.caption = caption || '';
   await property.save();
-  return property.toJSON();
+  return enrichPropertyWithAvailability(property);
 }
 
 export async function deletePropertyImage(ownerId, propertyId, imageId) {
-  const property = await Property.findOne({ _id: propertyId, ownerId });
-  if (!property) throw new ApiError(404, 'Property not found');
+  const property = await assertOwnerPropertyAccess(ownerId, propertyId);
 
   const image = property.images.id(imageId);
   if (!image) throw new ApiError(404, 'Image not found');
@@ -191,7 +187,7 @@ export async function deletePropertyImage(ownerId, propertyId, imageId) {
     }
   }
 
-  return property.toJSON();
+  return enrichPropertyWithAvailability(property);
 }
 
 export async function countPropertiesForOwner(ownerId) {

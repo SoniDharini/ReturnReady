@@ -70,6 +70,8 @@ export async function createDeduction(
     amount: number
     damageAssessmentId?: string | null
     inspectionItemId?: string | null
+    tenancyConditionId?: string | null
+    propertyChangeRequestId?: string | null
   },
 ) {
   const { data } = await api.post<SettlementResponse>(

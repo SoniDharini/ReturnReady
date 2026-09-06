@@ -19,7 +19,10 @@ export function SignaturePage() {
   const paths = useAppPaths()
   const { user } = useAuth()
   const [searchParams] = useSearchParams()
-  const tenancyId = searchParams.get('tenancyId') || ''
+  const tenancyId =
+    searchParams.get('tenancyId') ||
+    (user?.role === 'TENANT' ? user.tenantAccess?.tenancyId : '') ||
+    ''
 
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [drawing, setDrawing] = useState(false)

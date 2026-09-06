@@ -30,6 +30,8 @@ import { SettlementCompletePage } from '@/pages/settlement/SettlementCompletePag
 import { ReportsPage } from '@/pages/reports/ReportsPage'
 import { SettingsPage } from '@/pages/settings/SettingsPage'
 import { HelpPage } from '@/pages/help/HelpPage'
+import { PropertyChangesPage } from '@/pages/handover/PropertyChangesPage'
+import { ChangeRequestReviewPage } from '@/pages/handover/ChangeRequestReviewPage'
 import { roleHome } from '@/lib/paths'
 
 function HomeRedirect() {
@@ -76,6 +78,8 @@ export default function App() {
                 <Route path="tenancies" element={<TenanciesPage />} />
                 <Route path="tenancies/new" element={<CreateTenancyPage />} />
                 <Route path="tenancies/:id" element={<TenancyDetailsPage />} />
+                <Route path="change-requests" element={<PropertyChangesPage />} />
+                <Route path="change-requests/:requestId" element={<ChangeRequestReviewPage />} />
                 <Route path="inspections" element={<InspectionsPage />} />
                 <Route path="inspections/move-in" element={<InspectionDashboardPage />} />
                 <Route path="inspections/wizard" element={<InspectionWizardPage />} />
@@ -97,6 +101,8 @@ export default function App() {
                 <Route index element={<Navigate to="dashboard" replace />} />
                 <Route path="dashboard" element={<TenantDashboard />} />
                 <Route path="rental" element={<MyRentalPage />} />
+                <Route path="changes" element={<PropertyChangesPage />} />
+                <Route path="changes/:requestId" element={<ChangeRequestReviewPage />} />
                 <Route path="inspections" element={<InspectionsPage />} />
                 <Route path="inspections/move-in" element={<InspectionDashboardPage />} />
                 <Route path="inspections/wizard" element={<InspectionWizardPage />} />

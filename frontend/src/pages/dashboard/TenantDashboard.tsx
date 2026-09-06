@@ -8,7 +8,9 @@ import { useAuth } from '@/context/AuthContext'
 import { formatCurrency } from '@/lib/utils'
 import { appPaths } from '@/lib/paths'
 import { listTenancyInspections } from '@/services/inspection.service'
-import type { Inspection } from '@/types'
+import { listChangeRequests } from '@/services/handover.service'
+import { changeStatusLabel, requestHeadline } from '@/lib/handoverUi'
+import type { Inspection, PropertyChangeRequest } from '@/types'
 import {
   formatDisplayDate,
   getOccupancyLabel,
@@ -22,12 +24,16 @@ export function TenantDashboard() {
   const firstName = user?.name.split(' ')[0] || 'there'
   const access = user?.tenantAccess
   const [inspections, setInspections] = useState<Inspection[]>([])
+  const [changeRequests, setChangeRequests] = useState<PropertyChangeRequest[]>([])
 
   useEffect(() => {
     if (!access?.tenancyId) return
     void listTenancyInspections(access.tenancyId)
       .then(setInspections)
       .catch(() => setInspections([]))
+    void listChangeRequests(access.tenancyId)
+      .then((data) => setChangeRequests(data.requests))
+      .catch(() => setChangeRequests([]))
   }, [access?.tenancyId])
 
   const tenancyLike = access
@@ -106,6 +112,32 @@ export function TenantDashboard() {
           </Button>
         )}
       </Card>
+
+      {(() => {
+        const featured =
+          changeRequests.find((r) => r.status === 'PENDING') ||
+          changeRequests.find((r) => r.status === 'APPROVED') ||
+          changeRequests[0]
+        if (!featured) return null
+        return (
+          <Card>
+            <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+              Property Change Request
+            </p>
+            <h3 className="mt-2 text-lg font-bold text-ink">{requestHeadline(featured)}</h3>
+            <p className="mt-1 text-sm text-ink-secondary">
+              Status: {changeStatusLabel(featured.status)}
+            </p>
+            <Button
+              className="mt-4"
+              variant="secondary"
+              onClick={() => navigate(paths.propertyChanges)}
+            >
+              View Request
+            </Button>
+          </Card>
+        )
+      })()}
     </div>
   )
 }

@@ -14,10 +14,18 @@ import { ApiError } from '../utils/ApiError.js';
 import { getTenancyComparison } from './comparison.service.js';
 import { createNotification } from './notification.service.js';
 import {
+  assertSettlementCanStart,
   calculateFinancials,
+  calculateSettlement,
+  canFinalizeSettlement,
   deriveSettlementStatus,
+  getSettlementReadiness,
   getTenancyForUser,
 } from './settlementHelpers.js';
+import { loadComparisonForTenancy } from './comparison.service.js';
+import { DamageAssessment } from '../models/DamageAssessment.js';
+import { TenancyCondition } from '../models/TenancyCondition.js';
+import { PropertyChangeRequest } from '../models/PropertyChangeRequest.js';
 
 const REPORTS_DIR = path.join(UPLOADS_ROOT, 'reports');
 fs.mkdirSync(REPORTS_DIR, { recursive: true });
@@ -27,8 +35,9 @@ async function loadDeductions(tenancyId) {
   return deductions.map((d) => d.toJSON());
 }
 
-async function syncSettlementRecord(tenancy, deductions, settlement) {
-  const financials = calculateFinancials(tenancy, deductions);
+async function syncSettlementRecord(tenancy, deductions, settlement, disputes = []) {
+  const openDisputeCount = disputes.filter((d) => d.status === 'OPEN').length;
+  const financials = calculateFinancials(tenancy, deductions, openDisputeCount);
   let record = settlement;
   if (!record) {
     record = await Settlement.create({
@@ -47,29 +56,92 @@ async function syncSettlementRecord(tenancy, deductions, settlement) {
   record.finalRefund = financials.finalRefund;
 
   if (record.status !== 'COMPLETED' && record.status !== 'READY_FOR_SIGNATURE') {
-    record.status = deriveSettlementStatus(financials, record);
+    record.status = deriveSettlementStatus(financials, record, openDisputeCount);
   }
 
   await record.save();
   return { settlement: record.toJSON(), financials };
 }
 
+function enrichDeductions(deductions, assessments, comparisonItems) {
+  const assessmentById = new Map(assessments.map((a) => [a.id, a]));
+  const comparisonByMoveOutId = new Map(
+    comparisonItems
+      .filter((item) => item.moveOutItemId)
+      .map((item) => [item.moveOutItemId, item]),
+  );
+
+  return deductions.map((deduction) => {
+    const assessment = deduction.damageAssessmentId
+      ? assessmentById.get(deduction.damageAssessmentId)
+      : null;
+    const comparisonItem = assessment?.moveOutItemId
+      ? comparisonByMoveOutId.get(assessment.moveOutItemId)
+      : null;
+
+    return {
+      ...deduction,
+      currentAmount: deduction.amount,
+      requiresTenantReview:
+        deduction.status === 'PROPOSED' && Boolean(deduction.submittedForReviewAt),
+      isRevisedDeduction:
+        deduction.status === 'PROPOSED' &&
+        Boolean(deduction.resolutionType) &&
+        Boolean(deduction.submittedForReviewAt),
+      context: comparisonItem || assessment
+        ? {
+            itemName: assessment?.itemName || comparisonItem?.itemName || deduction.title,
+            classification: assessment?.classification || deduction.category,
+            moveInCondition: comparisonItem?.moveInCondition || null,
+            moveOutCondition: comparisonItem?.moveOutCondition || null,
+            moveInEvidence: comparisonItem?.moveInEvidence?.slice(0, 4) || [],
+            moveOutEvidence: comparisonItem?.moveOutEvidence?.slice(0, 4) || [],
+          }
+        : null,
+    };
+  });
+}
+
 export async function getSettlement(user, tenancyId) {
   const tenancy = await getTenancyForUser(user, tenancyId);
-  const deductions = await loadDeductions(tenancyId);
-  const disputes = await Dispute.find({ tenancyId }).sort({ createdAt: -1 });
+  const rawDeductions = await loadDeductions(tenancyId);
+  const disputeDocs = await Dispute.find({ tenancyId }).sort({ createdAt: -1 });
+  const disputes = disputeDocs.map((d) => d.toJSON());
   let settlement = await Settlement.findOne({ tenancyId });
-  const synced = await syncSettlementRecord(tenancy, deductions, settlement);
+  const synced = await syncSettlementRecord(tenancy, rawDeductions, settlement, disputes);
+  settlement = await Settlement.findOne({ tenancyId });
+
   const signatures = settlement
     ? await Signature.find({ settlementId: synced.settlement.id })
     : [];
   const report = await Report.findOne({ tenancyId, type: 'FINAL_HANDOVER' });
+  const readiness = await getSettlementReadiness(tenancyId);
+
+  let comparisonItems = [];
+  if (readiness.comparisonAvailable) {
+    try {
+      const comparison = await loadComparisonForTenancy(tenancyId);
+      comparisonItems = comparison.items;
+    } catch {
+      comparisonItems = [];
+    }
+  }
+
+  const assessments = (await DamageAssessment.find({ tenancyId })).map((a) => a.toJSON());
+  const deductions = enrichDeductions(rawDeductions, assessments, comparisonItems);
+  const conditions = (
+    await TenancyCondition.find({ tenancyId }).sort({ sortOrder: 1, createdAt: 1 })
+  ).map((c) => c.toJSON());
+  const changeRequests = (
+    await PropertyChangeRequest.find({ tenancyId }).sort({ createdAt: -1 })
+  ).map((r) => r.toJSON());
 
   return {
     tenancy: {
       id: tenancy._id.toString(),
       propertyName: tenancy.propertyName,
       tenantName: tenancy.tenantName,
+      ownerName: tenancy.ownerName,
       deposit: tenancy.deposit,
       stage: tenancy.stage,
       status: tenancy.status,
@@ -78,18 +150,36 @@ export async function getSettlement(user, tenancyId) {
       actualMoveOut: tenancy.actualMoveOut,
     },
     deductions,
-    disputes: disputes.map((d) => d.toJSON()),
+    disputes,
     settlement: synced.settlement,
     financials: synced.financials,
+    readiness,
     signatures: signatures.map((s) => s.toJSON()),
     report: report ? report.toJSON() : null,
+    conditions,
+    changeRequests,
+    handover: {
+      conditionsAccepted: Boolean(tenancy.conditionsAccepted),
+      conditionsAcceptedAt: tenancy.conditionsAcceptedAt,
+      approvedChanges: changeRequests.filter((r) =>
+        ['APPROVED', 'COMPLETED'].includes(r.status),
+      ),
+      rejectedChanges: changeRequests.filter((r) => r.status === 'REJECTED'),
+    },
   };
 }
 
 export async function submitDeductionsForReview(user, tenancyId) {
   if (user.role !== 'OWNER') throw new ApiError(403, 'Only owners can submit deductions for review');
 
+  await assertSettlementCanStart(tenancyId);
   const tenancy = await getTenancyForUser(user, tenancyId);
+
+  const settlementRecord = await Settlement.findOne({ tenancyId });
+  if (settlementRecord?.status === 'COMPLETED') {
+    throw new ApiError(400, 'Settlement is already completed');
+  }
+
   const deductions = await Deduction.find({ tenancyId, status: 'PROPOSED' });
   if (!deductions.length) {
     throw new ApiError(400, 'No proposed deductions to submit');
@@ -134,9 +224,10 @@ export async function submitDeductionsForReview(user, tenancyId) {
 export async function approveSettlement(user, tenancyId) {
   const tenancy = await getTenancyForUser(user, tenancyId);
   const deductions = await loadDeductions(tenancyId);
-  const financials = calculateFinancials(tenancy, deductions);
+  const disputes = await Dispute.find({ tenancyId });
+  const financials = await calculateSettlement(tenancy, deductions, disputes.map((d) => d.toJSON()));
 
-  if (!financials.allResolved || financials.hasOpenDisputes || financials.hasPendingProposed) {
+  if (!canFinalizeSettlement(financials, disputes.filter((d) => d.status === 'OPEN').length)) {
     throw new ApiError(400, 'Settlement cannot be approved while deductions are unresolved');
   }
 
@@ -307,6 +398,13 @@ export async function generateFinalReport(user, tenancyId) {
   const comparison = await getTenancyComparison(user, tenancyId);
   const deductions = await loadDeductions(tenancyId);
   const signatures = await Signature.find({ settlementId: settlement._id });
+  const conditions = await TenancyCondition.find({ tenancyId }).sort({
+    sortOrder: 1,
+    createdAt: 1,
+  });
+  const changeRequests = await PropertyChangeRequest.find({ tenancyId }).sort({
+    createdAt: -1,
+  });
   const owner = await User.findById(tenancy.ownerId);
   const tenant = tenancy.tenantUserId ? await User.findById(tenancy.tenantUserId) : null;
 
@@ -326,6 +424,14 @@ export async function generateFinalReport(user, tenancyId) {
     comparisonSummary: comparison.summary,
     finalRefund: settlement.finalRefund,
     finalDeductionTotal: settlement.finalDeductionTotal,
+    conditions: conditions.map((c) => c.toJSON()),
+    conditionsAcceptedAt: tenancy.conditionsAcceptedAt,
+    approvedChanges: changeRequests
+      .filter((r) => ['APPROVED', 'COMPLETED'].includes(r.status))
+      .map((r) => r.toJSON()),
+    rejectedChanges: changeRequests
+      .filter((r) => r.status === 'REJECTED')
+      .map((r) => r.toJSON()),
   };
 
   await new Promise((resolve, reject) => {
@@ -355,6 +461,73 @@ export async function generateFinalReport(user, tenancyId) {
     doc.text('Comparison Summary', { underline: true });
     doc.text(`Items compared: ${comparison.summary.totalItems}`);
     doc.text(`Damaged: ${comparison.summary.damaged} · Missing: ${comparison.summary.missing}`);
+    doc.moveDown();
+    doc.text('Original Handover Conditions', { underline: true });
+    if (tenancy.conditionsAcceptedAt) {
+      doc.text(`Tenant accepted: ${new Date(tenancy.conditionsAcceptedAt).toLocaleString()}`);
+    }
+    if (!conditions.length) {
+      doc.text('No handover conditions were recorded.');
+    }
+    for (const condition of conditions) {
+      doc.text(`- ${condition.title}`);
+      if (condition.category) doc.text(`  Category: ${condition.category}`);
+      if (condition.description) doc.text(`  Description: ${condition.description}`);
+      if (condition.acceptedAt) {
+        doc.text(`  Tenant acceptance date: ${new Date(condition.acceptedAt).toLocaleString()}`);
+      } else if (tenancy.conditionsAcceptedAt) {
+        doc.text(
+          `  Tenant acceptance date: ${new Date(tenancy.conditionsAcceptedAt).toLocaleString()}`,
+        );
+      }
+    }
+    doc.moveDown();
+    doc.text('Property Changes During Tenancy', { underline: true });
+    if (!changeRequests.length) {
+      doc.text('No property change requests were recorded.');
+    }
+    for (const change of changeRequests) {
+      doc.text(
+        `- ${change.title}${change.roomName ? ` (${change.roomName})` : ''} — ${change.status}`,
+      );
+      if (change.requestedAt) {
+        doc.text(`  Request date: ${new Date(change.requestedAt).toLocaleString()}`);
+      }
+      if (change.ownerResponse) doc.text(`  Owner response: ${change.ownerResponse}`);
+      if (change.ownerConditions) doc.text(`  Approval conditions: ${change.ownerConditions}`);
+      if (change.ownerNotes && change.status === 'REJECTED') {
+        doc.text(`  Rejection reason: ${change.ownerNotes}`);
+      }
+      doc.text(`  Completion status: ${change.status}`);
+    }
+    doc.moveDown();
+    doc.text('Move-Out Compliance', { underline: true });
+    if (!conditions.length && !changeRequests.filter((r) => ['APPROVED', 'COMPLETED'].includes(r.status)).length) {
+      doc.text('No handover conditions or approved changes to review.');
+    }
+    for (const condition of conditions) {
+      const related = deductions.find(
+        (d) => d.tenancyConditionId?.toString?.() === condition._id.toString(),
+      );
+      doc.text(`- Condition: ${condition.title}`);
+      doc.text(`  Compliance result: ${condition.complianceStatus || 'NEEDS_REVIEW'}`);
+      if (condition.complianceNotes) doc.text(`  Notes: ${condition.complianceNotes}`);
+      if (condition.complianceEvidence?.length) {
+        doc.text(`  Evidence: ${condition.complianceEvidence.length} photo(s)`);
+      }
+      if (related) doc.text(`  Related deduction: ${related.title} — ₹${related.amount}`);
+    }
+    for (const change of changeRequests.filter((r) =>
+      ['APPROVED', 'COMPLETED'].includes(r.status),
+    )) {
+      const related = deductions.find(
+        (d) => d.propertyChangeRequestId?.toString?.() === change._id.toString(),
+      );
+      doc.text(`- Approved change: ${change.title}`);
+      doc.text(`  Compliance result: ${change.complianceStatus || 'NEEDS_REVIEW'}`);
+      if (change.ownerConditions) doc.text(`  Owner condition: ${change.ownerConditions}`);
+      if (related) doc.text(`  Related deduction: ${related.title} — ₹${related.amount}`);
+    }
     doc.moveDown();
     doc.text('Signatures', { underline: true });
     for (const sig of signatures) {

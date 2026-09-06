@@ -20,6 +20,7 @@ export function InvitationPage() {
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [acceptedTerms, setAcceptedTerms] = useState(false)
+  const [acceptedConditions, setAcceptedConditions] = useState(false)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -97,9 +98,13 @@ export function InvitationPage() {
               setError('Please accept the terms to continue.')
               return
             }
+            if (invite.requiresConditionAcceptance && !acceptedConditions) {
+              setError('You must agree to the property handover conditions.')
+              return
+            }
             setSubmitting(true)
             try {
-              const result = await activateTenant(token, password)
+              const result = await activateTenant(token, password, acceptedConditions)
               if (!result.ok) {
                 setError(result.error)
                 return
@@ -155,16 +160,19 @@ export function InvitationPage() {
         ReturnReady for:
       </p>
 
-      <dl className="mt-8 space-y-4 rounded-2xl bg-surface-muted p-5 text-sm">
+      <h2 className="mt-8 text-sm font-bold uppercase tracking-wide text-ink-muted">Rental Details</h2>
+      <dl className="mt-3 space-y-4 rounded-2xl bg-surface-muted p-5 text-sm">
         <div className="flex justify-between gap-4">
           <dt className="text-ink-muted">Property</dt>
           <dd className="font-semibold text-ink text-right">{invite.propertyName}</dd>
         </div>
         <div className="flex justify-between gap-4">
-          <dt className="text-ink-muted">Rental Period</dt>
-          <dd className="font-semibold text-ink text-right">
-            {invite.moveIn} – {invite.moveOut}
-          </dd>
+          <dt className="text-ink-muted">Move-In Date</dt>
+          <dd className="font-semibold text-ink text-right">{invite.moveIn}</dd>
+        </div>
+        <div className="flex justify-between gap-4">
+          <dt className="text-ink-muted">Expected Move-Out Date</dt>
+          <dd className="font-semibold text-ink text-right">{invite.moveOut}</dd>
         </div>
         <div className="flex justify-between gap-4">
           <dt className="text-ink-muted">Security Deposit</dt>
@@ -176,10 +184,42 @@ export function InvitationPage() {
         </div>
       </dl>
 
+      {invite.conditions?.length ? (
+        <div className="mt-6">
+          <h2 className="text-sm font-bold uppercase tracking-wide text-ink-muted">
+            Property Handover Conditions
+          </h2>
+          <ul className="mt-3 space-y-3">
+            {invite.conditions.map((condition) => (
+              <li key={condition.id} className="rounded-xl border border-border px-4 py-3">
+                <p className="font-semibold text-ink">✓ {condition.title}</p>
+                {condition.description ? (
+                  <p className="mt-1 text-sm text-ink-secondary">{condition.description}</p>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+          <label className="mt-4 flex items-start gap-2 text-sm text-ink-secondary">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={acceptedConditions}
+              onChange={(e) => setAcceptedConditions(e.target.checked)}
+            />
+            I have read and agree to the property handover conditions.
+          </label>
+        </div>
+      ) : null}
+
       <p className="mt-4 text-sm text-ink-muted">Your access will only be connected to this rental.</p>
 
       <div className="mt-8 flex flex-col gap-2 sm:flex-row">
-        <Button className="flex-1" size="lg" onClick={() => setStep('activate')}>
+        <Button
+          className="flex-1"
+          size="lg"
+          disabled={Boolean(invite.requiresConditionAcceptance) && !acceptedConditions}
+          onClick={() => setStep('activate')}
+        >
           Accept Invitation
         </Button>
         <Link to="/" className="flex-1">

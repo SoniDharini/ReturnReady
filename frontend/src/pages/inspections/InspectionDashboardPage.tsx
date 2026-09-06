@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Badge } from '@/components/ui/Badge'
 import { useAppPaths } from '@/hooks/useAppPaths'
+import { getInspectionDisplayStatus, isInspectionFullyApproved } from '@/lib/inspectionStatus'
 import { getErrorMessage } from '@/services/api'
 import {
   createMoveInInspection,
@@ -86,8 +87,8 @@ export function InspectionDashboardPage() {
   const canContinue =
     moveIn && ['DRAFT', 'IN_PROGRESS'].includes(moveIn.status)
 
-  const showApproval = moveIn?.status === 'APPROVAL_PENDING'
-  const isLocked = moveIn?.status === 'LOCKED'
+  const showApproval = moveIn?.status === 'APPROVAL_PENDING' && !isInspectionFullyApproved(moveIn)
+  const isLocked = isInspectionFullyApproved(moveIn)
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -104,8 +105,8 @@ export function InspectionDashboardPage() {
                 <h2 className="text-lg font-bold text-ink">{moveIn.propertyName}</h2>
                 <p className="text-sm text-ink-secondary">Move-in inspection</p>
               </div>
-              <Badge status={moveIn.status === 'APPROVAL_PENDING' ? 'Awaiting Approval' : 'In Progress'}>
-                {moveIn.status.replaceAll('_', ' ')}
+              <Badge status={getInspectionDisplayStatus(moveIn).badgeStatus}>
+                {getInspectionDisplayStatus(moveIn).label}
               </Badge>
             </div>
 

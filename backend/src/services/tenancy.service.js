@@ -4,10 +4,17 @@ import { User } from '../models/User.js';
 import { Inspection } from '../models/Inspection.js';
 import { ApiError } from '../utils/ApiError.js';
 import {
+  assertPropertyAvailableForTenancy,
+  getActiveTenancyForProperty,
+} from './propertyAvailability.service.js';
+import {
   generateAccessToken,
   generateRefreshToken,
 } from '../utils/generateToken.js';
+import { TenancyCondition } from '../models/TenancyCondition.js';
+import { acceptConditionsForActivation } from './tenancyCondition.service.js';
 import bcrypt from 'bcryptjs';
+import mongoose from 'mongoose';
 
 function formatTenancy(doc) {
   return doc.toJSON();
@@ -66,46 +73,76 @@ export async function getTenancyForOwner(ownerId, tenancyId) {
 }
 
 export async function createTenancyInvite(owner, payload) {
-  const property = await Property.findOne({ _id: payload.propertyId, ownerId: owner.id });
-  if (!property) throw new ApiError(404, 'Property not found');
+  const session = await mongoose.startSession();
 
-  const existingOwnerAccount = await User.findOne({
-    email: payload.tenantEmail,
-    role: 'OWNER',
-  });
-  if (existingOwnerAccount) {
-    throw new ApiError(
-      409,
-      'This email is already associated with an Owner account. Use a different Tenant email.',
-    );
+  try {
+    let createdTenancy;
+
+    await session.withTransaction(async () => {
+      const property = await Property.findOne({
+        _id: payload.propertyId,
+        ownerId: owner.id,
+      }).session(session);
+      if (!property) throw new ApiError(404, 'Property not found');
+
+      await assertPropertyAvailableForTenancy(property._id, session);
+
+      const existingOwnerAccount = await User.findOne({
+        email: payload.tenantEmail,
+        role: 'OWNER',
+      }).session(session);
+      if (existingOwnerAccount) {
+        throw new ApiError(
+          409,
+          'This email is already associated with an Owner account. Use a different Tenant email.',
+        );
+      }
+
+      const inviteToken = Tenancy.createInviteToken();
+
+      const [tenancy] = await Tenancy.create(
+        [
+          {
+            ownerId: owner.id,
+            propertyId: property._id,
+            propertyName: property.name,
+            tenantName: payload.tenantName,
+            tenantEmail: payload.tenantEmail,
+            tenantPhone: payload.tenantPhone || '',
+            ownerName: owner.name,
+            ownerEmail: owner.email,
+            moveIn: payload.moveIn,
+            moveOut: payload.moveOut,
+            rent: payload.rent,
+            deposit: payload.deposit,
+            inviteToken,
+            inviteStatus: 'Pending',
+            status: 'Invitation Sent',
+            stage: 'invitation',
+          },
+        ],
+        { session },
+      );
+
+      property.activeTenancy = payload.tenantName;
+      property.status = 'Active';
+      await property.save({ session });
+
+      createdTenancy = tenancy;
+    });
+
+    return formatTenancy(createdTenancy);
+  } catch (error) {
+    if (error?.code === 11000) {
+      throw new ApiError(
+        409,
+        'This property already has an active tenant. Complete the current tenancy before assigning another tenant.',
+      );
+    }
+    throw error;
+  } finally {
+    session.endSession();
   }
-
-  const inviteToken = Tenancy.createInviteToken();
-
-  const tenancy = await Tenancy.create({
-    ownerId: owner.id,
-    propertyId: property._id,
-    propertyName: property.name,
-    tenantName: payload.tenantName,
-    tenantEmail: payload.tenantEmail,
-    tenantPhone: payload.tenantPhone || '',
-    ownerName: owner.name,
-    ownerEmail: owner.email,
-    moveIn: payload.moveIn,
-    moveOut: payload.moveOut,
-    rent: payload.rent,
-    deposit: payload.deposit,
-    inviteToken,
-    inviteStatus: 'Pending',
-    status: 'Invitation Sent',
-    stage: 'invitation',
-  });
-
-  property.activeTenancy = payload.tenantName;
-  property.status = 'Active';
-  await property.save();
-
-  return formatTenancy(tenancy);
 }
 
 export async function cancelInvitation(ownerId, tenancyId) {
@@ -119,9 +156,12 @@ export async function cancelInvitation(ownerId, tenancyId) {
   await tenancy.save();
 
   const property = await Property.findById(tenancy.propertyId);
-  if (property && property.activeTenancy === tenancy.tenantName) {
-    property.activeTenancy = null;
-    await property.save();
+  if (property) {
+    const stillActive = await getActiveTenancyForProperty(property._id);
+    if (!stillActive) {
+      property.activeTenancy = null;
+      await property.save();
+    }
   }
 
   return formatTenancy(tenancy);
@@ -158,6 +198,11 @@ export async function getInvitationByToken(token) {
     throw new ApiError(410, 'This invitation has expired');
   }
 
+  const conditions = await TenancyCondition.find({ tenancyId: tenancy._id }).sort({
+    sortOrder: 1,
+    createdAt: 1,
+  });
+
   return {
     token: tenancy.inviteToken,
     status: tenancy.inviteStatus,
@@ -171,10 +216,14 @@ export async function getInvitationByToken(token) {
     moveOut: tenancy.moveOut,
     deposit: tenancy.deposit,
     tenancyId: tenancy._id.toString(),
+    conditions: conditions.map((c) => c.toJSON()),
+    requiresConditionAcceptance: conditions.some(
+      (c) => c.isMandatory || c.requiresTenantAcceptance,
+    ),
   };
 }
 
-export async function activateTenantFromInvite({ token, password }) {
+export async function activateTenantFromInvite({ token, password, conditionsAccepted }) {
   const tenancy = await Tenancy.findOne({ inviteToken: token });
   if (!tenancy) throw new ApiError(404, 'Invitation Not Available');
 
@@ -199,6 +248,14 @@ export async function activateTenantFromInvite({ token, password }) {
     throw new ApiError(409, 'An account with this email already exists. Please sign in.');
   }
 
+  const existingConditions = await TenancyCondition.find({ tenancyId: tenancy._id });
+  const requiresAcceptance = existingConditions.some(
+    (c) => c.isMandatory || c.requiresTenantAcceptance,
+  );
+  if (requiresAcceptance && conditionsAccepted !== true) {
+    throw new ApiError(400, 'You must accept the property handover conditions to continue.');
+  }
+
   const user = await User.create({
     name: tenancy.tenantName,
     email: tenancy.tenantEmail,
@@ -212,6 +269,9 @@ export async function activateTenantFromInvite({ token, password }) {
   tenancy.status = 'Active';
   tenancy.stage = 'move-in';
   tenancy.tenantUserId = user._id;
+  if (existingConditions.length) {
+    await acceptConditionsForActivation(tenancy, user._id);
+  }
   await tenancy.save();
 
   const payload = { userId: user._id.toString(), role: user.role };

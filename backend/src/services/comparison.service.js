@@ -4,6 +4,8 @@ import { InspectionEvidence } from '../models/InspectionEvidence.js';
 import { InspectionItem } from '../models/InspectionItem.js';
 import { MeterReading } from '../models/MeterReading.js';
 import { Tenancy } from '../models/Tenancy.js';
+import { PropertyChangeRequest } from '../models/PropertyChangeRequest.js';
+import { TenancyCondition } from '../models/TenancyCondition.js';
 import { ApiError } from '../utils/ApiError.js';
 
 const CONDITION_SCORES = {
@@ -51,32 +53,7 @@ async function loadInspectionBundle(inspectionId) {
   };
 }
 
-export async function getTenancyComparison(user, tenancyId) {
-  const tenancy =
-    user.role === 'OWNER'
-      ? await Tenancy.findOne({ _id: tenancyId, ownerId: user.id })
-      : await Tenancy.findOne({
-          _id: tenancyId,
-          tenantUserId: user.id,
-          inviteStatus: 'Accepted',
-        });
-
-  if (!tenancy) throw new ApiError(404, 'Tenancy not found');
-
-  const moveIn = await Inspection.findOne({ tenancyId, type: 'MOVE_IN', status: 'LOCKED' });
-  const moveOut = await Inspection.findOne({
-    tenancyId,
-    type: 'MOVE_OUT',
-    status: { $in: ['COMPLETED', 'APPROVAL_PENDING', 'SUBMITTED'] },
-  });
-
-  if (!moveIn) {
-    throw new ApiError(400, 'Locked move-in inspection is required before comparison');
-  }
-  if (!moveOut) {
-    throw new ApiError(400, 'Completed move-out inspection is required before comparison');
-  }
-
+async function buildComparisonPayload(tenancy, moveIn, moveOut) {
   const moveInBundle = await loadInspectionBundle(moveIn._id);
   const moveOutBundle = await loadInspectionBundle(moveOut._id);
 
@@ -190,6 +167,13 @@ export async function getTenancyComparison(user, tenancyId) {
     roomsMap.get(roomKey).items.push(item);
   }
 
+  const changeRequests = (
+    await PropertyChangeRequest.find({ tenancyId: tenancy._id }).sort({ createdAt: -1 })
+  ).map((r) => r.toJSON());
+  const conditions = (
+    await TenancyCondition.find({ tenancyId: tenancy._id }).sort({ sortOrder: 1, createdAt: 1 })
+  ).map((c) => c.toJSON());
+
   return {
     tenancy: {
       id: tenancy._id.toString(),
@@ -205,5 +189,46 @@ export async function getTenancyComparison(user, tenancyId) {
     rooms: Array.from(roomsMap.values()),
     accessComparisons,
     meterComparisons,
+    approvedChanges: changeRequests.filter((r) =>
+      ['APPROVED', 'COMPLETED'].includes(r.status),
+    ),
+    unapprovedChanges: changeRequests.filter((r) => r.status === 'REJECTED'),
+    conditions,
   };
+}
+
+export async function loadComparisonForTenancy(tenancyId) {
+  const tenancy = await Tenancy.findById(tenancyId);
+  if (!tenancy) throw new ApiError(404, 'Tenancy not found');
+
+  const moveIn = await Inspection.findOne({ tenancyId, type: 'MOVE_IN', status: 'LOCKED' });
+  const moveOut = await Inspection.findOne({
+    tenancyId,
+    type: 'MOVE_OUT',
+    status: { $in: ['COMPLETED', 'APPROVAL_PENDING', 'SUBMITTED'] },
+  });
+
+  if (!moveIn) {
+    throw new ApiError(400, 'Locked move-in inspection is required before comparison');
+  }
+  if (!moveOut) {
+    throw new ApiError(400, 'Completed move-out inspection is required before comparison');
+  }
+
+  return buildComparisonPayload(tenancy, moveIn, moveOut);
+}
+
+export async function getTenancyComparison(user, tenancyId) {
+  const tenancy =
+    user.role === 'OWNER'
+      ? await Tenancy.findOne({ _id: tenancyId, ownerId: user.id })
+      : await Tenancy.findOne({
+          _id: tenancyId,
+          tenantUserId: user.id,
+          inviteStatus: 'Accepted',
+        });
+
+  if (!tenancy) throw new ApiError(404, 'Tenancy not found');
+
+  return loadComparisonForTenancy(tenancyId);
 }

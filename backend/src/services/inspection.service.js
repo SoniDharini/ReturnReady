@@ -8,6 +8,8 @@ import { MeterReading } from '../models/MeterReading.js';
 import { Property } from '../models/Property.js';
 import { Tenancy } from '../models/Tenancy.js';
 import { getTenantAccessForUser } from './tenancy.service.js';
+import { validateConditionsAccepted } from './tenancyCondition.service.js';
+import { createNotification } from './notification.service.js';
 import { INSPECTION_UPLOADS_DIR } from '../middleware/upload.middleware.js';
 import { ApiError } from '../utils/ApiError.js';
 
@@ -496,6 +498,16 @@ export async function submitInspection(user, inspectionId) {
   inspection.submittedAt = new Date();
   if (inspection.type === 'MOVE_OUT') {
     inspection.completedAt = new Date();
+    const tenancy = await Tenancy.findById(inspection.tenancyId);
+    if (tenancy?.ownerId) {
+      await createNotification({
+        userId: tenancy.ownerId,
+        tenancyId: tenancy._id,
+        type: 'MOVE_OUT_SUBMITTED',
+        title: 'Move-Out inspection submitted',
+        message: `${tenancy.tenantName} submitted the Move-Out inspection for ${tenancy.propertyName}.`,
+      });
+    }
   }
   await inspection.save();
 
@@ -511,6 +523,14 @@ export async function approveInspection(user, inspectionId) {
 
   if (inspection.status !== 'APPROVAL_PENDING') {
     throw new ApiError(400, 'This inspection is not awaiting approval');
+  }
+
+  const conditionCheck = await validateConditionsAccepted(inspection.tenancyId);
+  if (conditionCheck.required && !conditionCheck.accepted) {
+    throw new ApiError(
+      400,
+      'Mandatory handover conditions must be accepted before Move-In can be approved.',
+    );
   }
 
   if (user.role === 'OWNER') {
@@ -543,8 +563,8 @@ export async function approveInspection(user, inspectionId) {
 
   if (inspection.ownerApproved && inspection.tenantApproved) {
     inspection.status = 'LOCKED';
-    inspection.lockedAt = new Date();
-    inspection.completedAt = new Date();
+    inspection.lockedAt = inspection.lockedAt || new Date();
+    inspection.completedAt = inspection.completedAt || new Date();
 
     const tenancy = await Tenancy.findById(inspection.tenancyId);
     if (tenancy) {

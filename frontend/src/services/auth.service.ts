@@ -55,6 +55,7 @@ export async function getInvitation(token: string) {
 export async function activateTenant(payload: {
   token: string
   password: string
+  conditionsAccepted?: boolean
 }) {
   const { data } = await api.post<AuthResponse>('/invitations/activate', payload)
   setAccessToken(data.data.accessToken)

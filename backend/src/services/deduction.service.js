@@ -1,9 +1,27 @@
 import { Deduction } from '../models/Deduction.js';
 import { DamageAssessment } from '../models/DamageAssessment.js';
+import { Settlement } from '../models/Settlement.js';
 import { Tenancy } from '../models/Tenancy.js';
 import { ApiError } from '../utils/ApiError.js';
-import { calculateFinancials, getTenancyForUser } from './settlementHelpers.js';
+import {
+  assertSettlementCanStart,
+  calculateFinancials,
+  getTenancyForUser,
+} from './settlementHelpers.js';
 import { getSettlement, submitDeductionsForReview } from './settlement.service.js';
+
+function validateAmount(amount) {
+  if (typeof amount !== 'number' || Number.isNaN(amount) || !Number.isFinite(amount) || amount < 0) {
+    throw new ApiError(400, 'Deduction amount must be a valid non-negative number');
+  }
+}
+
+async function assertSettlementMutable(tenancyId) {
+  const settlement = await Settlement.findOne({ tenancyId });
+  if (settlement?.status === 'COMPLETED') {
+    throw new ApiError(400, 'Settlement is completed and cannot be modified');
+  }
+}
 
 export async function listDeductions(user, tenancyId) {
   return getSettlement(user, tenancyId);
@@ -14,11 +32,11 @@ export async function createDeduction(user, tenancyId, payload) {
     throw new ApiError(403, 'Only owners can propose deductions');
   }
 
-  const tenancy = await getTenancyForUser(user, tenancyId);
+  await assertSettlementCanStart(tenancyId);
+  await assertSettlementMutable(tenancyId);
 
-  if (payload.amount < 0 || Number.isNaN(payload.amount)) {
-    throw new ApiError(400, 'Deduction amount must be a valid non-negative number');
-  }
+  const tenancy = await getTenancyForUser(user, tenancyId);
+  validateAmount(payload.amount);
 
   let damageAssessmentId = payload.damageAssessmentId || null;
   if (damageAssessmentId) {
@@ -27,6 +45,12 @@ export async function createDeduction(user, tenancyId, payload) {
       tenancyId,
     });
     if (!assessment) throw new ApiError(404, 'Damage assessment not found');
+    if (!assessment.deductionRequired) {
+      throw new ApiError(
+        400,
+        'Deductions can only be linked to damage assessments that require a deduction',
+      );
+    }
   }
 
   const deduction = await Deduction.create({
@@ -34,6 +58,8 @@ export async function createDeduction(user, tenancyId, payload) {
     propertyId: tenancy.propertyId,
     damageAssessmentId,
     inspectionItemId: payload.inspectionItemId || null,
+    tenancyConditionId: payload.tenancyConditionId || null,
+    propertyChangeRequestId: payload.propertyChangeRequestId || null,
     title: payload.title,
     category: payload.category || payload.reason || payload.title,
     reason: payload.reason || payload.title,
@@ -66,21 +92,22 @@ export async function updateDeduction(user, deductionId, payload) {
   const deduction = await Deduction.findById(deductionId);
   if (!deduction) throw new ApiError(404, 'Deduction not found');
 
+  await assertSettlementMutable(deduction.tenancyId);
+
   const tenancy = await Tenancy.findOne({ _id: deduction.tenancyId, ownerId: user.id });
   if (!tenancy) throw new ApiError(403, 'You do not have permission');
+
+  if (!['PROPOSED'].includes(deduction.status)) {
+    throw new ApiError(400, 'This deduction can no longer be edited');
+  }
 
   if (payload.title !== undefined) deduction.title = payload.title;
   if (payload.reason !== undefined) deduction.reason = payload.reason;
   if (payload.description !== undefined) deduction.description = payload.description;
   if (payload.amount !== undefined) {
-    if (payload.amount < 0 || Number.isNaN(payload.amount)) {
-      throw new ApiError(400, 'Deduction amount must be a valid non-negative number');
-    }
+    validateAmount(payload.amount);
+    if (!deduction.originalAmount) deduction.originalAmount = deduction.amount;
     deduction.amount = payload.amount;
-  }
-
-  if (!['PROPOSED', 'DISPUTED'].includes(deduction.status)) {
-    throw new ApiError(400, 'This deduction can no longer be edited');
   }
 
   await deduction.save();
@@ -99,14 +126,20 @@ export async function deleteDeduction(user, deductionId) {
   const deduction = await Deduction.findById(deductionId);
   if (!deduction) throw new ApiError(404, 'Deduction not found');
 
+  await assertSettlementMutable(deduction.tenancyId);
+
   const tenancy = await Tenancy.findOne({ _id: deduction.tenancyId, ownerId: user.id });
   if (!tenancy) throw new ApiError(403, 'You do not have permission');
 
-  if (!['PROPOSED'].includes(deduction.status)) {
-    throw new ApiError(400, 'Only proposed deductions can be removed');
+  if (deduction.submittedForReviewAt) {
+    deduction.status = 'CANCELLED';
+    await deduction.save();
+  } else if (deduction.status === 'PROPOSED') {
+    await deduction.deleteOne();
+  } else {
+    throw new ApiError(400, 'This deduction cannot be removed');
   }
 
-  await deduction.deleteOne();
   const all = await Deduction.find({ tenancyId: tenancy._id });
   return {
     financials: calculateFinancials(tenancy, all.map((d) => d.toJSON())),

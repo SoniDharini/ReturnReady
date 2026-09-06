@@ -87,7 +87,9 @@ export function InspectionReviewPage() {
             <span className="font-semibold text-ink">{review.inspection.propertyName}</span>{' '}
             {isMoveOut
               ? 'is ready for comparison.'
-              : 'is now awaiting approval from both parties.'}
+              : review.inspection.ownerApproved && review.inspection.tenantApproved
+                ? 'has been approved by both parties.'
+                : 'is now awaiting approval from both parties.'}
           </p>
           {!isMoveOut ? (
             <div className="mt-4 space-y-2 text-sm text-ink-secondary">

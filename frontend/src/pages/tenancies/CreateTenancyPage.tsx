@@ -10,6 +10,7 @@ import { getErrorMessage } from '@/services/api'
 import type { Property } from '@/types'
 import { cn, formatCurrency } from '@/lib/utils'
 import { useAppPaths } from '@/hooks/useAppPaths'
+import { getAvailabilityLabel, isPropertyAvailable } from '@/lib/propertyAvailability'
 
 const steps = ['Tenant', 'Rental Details', 'Review']
 
@@ -37,18 +38,28 @@ export function CreateTenancyPage() {
     void listProperties()
       .then((data) => {
         setProperties(data)
-        if (preselectedPropertyId) {
+        const available = data.filter(isPropertyAvailable)
+        if (preselectedPropertyId && available.some((p) => p.id === preselectedPropertyId)) {
           setPropertyId(preselectedPropertyId)
-        } else if (data[0]) {
-          setPropertyId(data[0].id)
+        } else if (available[0]) {
+          setPropertyId(available[0].id)
+        } else {
+          setPropertyId('')
         }
       })
       .catch((err) => setError(getErrorMessage(err)))
   }, [preselectedPropertyId])
 
   const selected = properties.find((p) => p.id === propertyId)
+  const availableProperties = properties.filter(isPropertyAvailable)
 
   const sendInvite = async () => {
+    if (!propertyId || !selected || !isPropertyAvailable(selected)) {
+      setError(
+        'This property already has an active tenant. Complete the current tenancy before assigning another tenant.',
+      )
+      return
+    }
     setError('')
     setLoading(true)
     try {
@@ -126,25 +137,57 @@ export function CreateTenancyPage() {
             <h2 className="text-lg font-bold text-ink">Rental Information</h2>
             {properties.length === 0 ? (
               <p className="text-sm text-ink-secondary">Add a property before inviting a tenant.</p>
+            ) : availableProperties.length === 0 ? (
+              <p className="text-sm text-ink-secondary">
+                All properties currently have an active or reserved tenancy. Complete an existing
+                tenancy before inviting a new tenant.
+              </p>
             ) : (
               <div className="space-y-3">
                 <p className="text-sm font-semibold text-ink">Property</p>
-                {properties.map((property) => (
-                  <button
-                    key={property.id}
-                    type="button"
-                    onClick={() => setPropertyId(property.id)}
-                    className={cn(
-                      'w-full rounded-xl border-2 px-4 py-3 text-left',
-                      propertyId === property.id ? 'border-brand-600 bg-brand-50' : 'border-border',
-                    )}
-                  >
-                    <p className="font-semibold text-ink">{property.name}</p>
-                    <p className="text-sm text-ink-muted">
-                      {property.address}, {property.city}
-                    </p>
-                  </button>
-                ))}
+                {properties.map((property) => {
+                  const available = isPropertyAvailable(property)
+                  const occupiedLabel = property.activeTenantName || property.activeTenancy
+                  return (
+                    <button
+                      key={property.id}
+                      type="button"
+                      disabled={!available}
+                      onClick={() => available && setPropertyId(property.id)}
+                      className={cn(
+                        'w-full rounded-xl border-2 px-4 py-3 text-left',
+                        !available && 'cursor-not-allowed opacity-60',
+                        propertyId === property.id && available
+                          ? 'border-brand-600 bg-brand-50'
+                          : 'border-border',
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-semibold text-ink">{property.name}</p>
+                          <p className="text-sm text-ink-muted">
+                            {property.address}, {property.city}
+                          </p>
+                          {!available && occupiedLabel ? (
+                            <p className="mt-1 text-xs font-medium text-warning">
+                              Occupied by {occupiedLabel}
+                            </p>
+                          ) : null}
+                        </div>
+                        <span
+                          className={cn(
+                            'shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold',
+                            available
+                              ? 'bg-success-bg text-success'
+                              : 'bg-surface-subtle text-ink-muted',
+                          )}
+                        >
+                          {getAvailabilityLabel(property.availability)}
+                        </span>
+                      </div>
+                    </button>
+                  )
+                })}
               </div>
             )}
             <div className="grid gap-4 sm:grid-cols-2">
@@ -216,9 +259,17 @@ export function CreateTenancyPage() {
             {step === 0 ? 'Cancel' : 'Back'}
           </Button>
           {step < 2 ? (
-            <Button onClick={() => setStep((s) => s + 1)}>Continue</Button>
+            <Button
+              onClick={() => setStep((s) => s + 1)}
+              disabled={step === 1 && availableProperties.length === 0}
+            >
+              Continue
+            </Button>
           ) : (
-            <Button onClick={() => void sendInvite()} disabled={loading || !propertyId}>
+            <Button
+              onClick={() => void sendInvite()}
+              disabled={loading || !propertyId || !selected || !isPropertyAvailable(selected)}
+            >
               {loading ? 'Sending...' : 'Send Invitation'}
             </Button>
           )}

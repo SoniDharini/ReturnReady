@@ -20,8 +20,12 @@ import {
   listTenancyInspections,
 } from '@/services/inspection.service'
 import { getErrorMessage } from '@/services/api'
-import type { Inspection, Tenancy } from '@/types'
+import type { Inspection, PropertyChangeRequest, Tenancy } from '@/types'
+import { ConditionManager } from '@/components/handover/ConditionManager'
+import { ChangeRequestCard } from '@/components/handover/ChangeRequestCard'
+import { getInspectionDisplayStatus } from '@/lib/inspectionStatus'
 import { formatCurrency } from '@/lib/utils'
+import { listChangeRequests } from '@/services/handover.service'
 import { useAppPaths } from '@/hooks/useAppPaths'
 import {
   DATE_CHANGE_REASONS,
@@ -54,16 +58,19 @@ export function TenancyDetailsPage() {
   const [expectedMoveOut, setExpectedMoveOut] = useState('')
   const [dateChangeReason, setDateChangeReason] = useState<string>(DATE_CHANGE_REASONS[0])
   const [occupancyStatus, setOccupancyStatus] = useState<string>('CURRENTLY_STAYING')
+  const [changeRequests, setChangeRequests] = useState<PropertyChangeRequest[]>([])
 
   const load = async () => {
     setLoading(true)
     try {
-      const [tenancyData, inspectionList] = await Promise.all([
+      const [tenancyData, inspectionList, changeData] = await Promise.all([
         getTenancy(id),
         listTenancyInspections(id).catch(() => [] as Inspection[]),
+        listChangeRequests(id).catch(() => ({ requests: [] as PropertyChangeRequest[] })),
       ])
       setTenancy(tenancyData)
       setInspections(inspectionList)
+      setChangeRequests(changeData.requests)
       setExpectedMoveOut(toInputDate(tenancyData.moveOut))
       setOccupancyStatus(tenancyData.occupancyStatus || 'CURRENTLY_STAYING')
     } catch (err) {
@@ -85,7 +92,7 @@ export function TenancyDetailsPage() {
   const moveOut = inspections.find((i) => i.type === 'MOVE_OUT')
   const action = getOwnerAction(tenancy, inspections, paths)
   const canStartMoveOut =
-    moveIn?.status === 'LOCKED' &&
+    Boolean(moveIn && (moveIn.status === 'LOCKED' || (moveIn.ownerApproved && moveIn.tenantApproved))) &&
     !moveOut &&
     ['active', 'move-out'].includes(tenancy.stage)
 
@@ -212,6 +219,14 @@ export function TenancyDetailsPage() {
             <dt className="text-ink-muted">Move-In</dt>
             <dd className="mt-1 font-semibold text-ink">{formatDisplayDate(tenancy.moveIn)}</dd>
           </div>
+          {moveIn ? (
+            <div>
+              <dt className="text-ink-muted">Move-In Inspection</dt>
+              <dd className="mt-1 font-semibold text-ink">
+                {getInspectionDisplayStatus(moveIn).label}
+              </dd>
+            </div>
+          ) : null}
           <div>
             <dt className="text-ink-muted">Expected Move-Out</dt>
             <dd className="mt-1 font-semibold text-ink">{formatDisplayDate(tenancy.moveOut)}</dd>
@@ -265,6 +280,29 @@ export function TenancyDetailsPage() {
           ) : null}
         </div>
       </Card>
+
+      <ConditionManager tenancyId={tenancy.id} />
+
+      {changeRequests.length > 0 ? (
+        <Card>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-lg font-bold text-ink">Property Change Requests</h2>
+            <Button variant="secondary" onClick={() => navigate(paths.propertyChangeChat(tenancy.id))}>
+              Open conversation
+            </Button>
+          </div>
+          <ul className="mt-4 space-y-3">
+            {changeRequests.slice(0, 4).map((request) => (
+              <ChangeRequestCard
+                key={request.id}
+                request={request}
+                onOpen={() => navigate(paths.changeRequest(request.id))}
+                ctaLabel={request.status === 'PENDING' ? 'Review Request' : 'View Details'}
+              />
+            ))}
+          </ul>
+        </Card>
+      ) : null}
 
       {tenancy.inviteStatus === 'Pending' ? (
         <Card>

@@ -43,5 +43,21 @@ export function appPaths(role: UserRole) {
     settings: `${base}/settings`,
     help: `${base}/help`,
     onboarding: '/owner/onboarding',
+    propertyChanges: userRolePath(role, 'changes'),
+    propertyChangeChat: (tenancyId?: string) =>
+      role === 'OWNER'
+        ? `/owner/change-requests${tenancyId ? `?tenancyId=${tenancyId}` : ''}`
+        : '/tenant/changes',
+    changeRequest: (requestId: string) =>
+      role === 'OWNER'
+        ? `/owner/change-requests/${requestId}`
+        : `/tenant/changes/${requestId}`,
   }
+}
+
+function userRolePath(role: UserRole, kind: 'changes') {
+  if (kind === 'changes') {
+    return role === 'OWNER' ? '/owner/change-requests' : '/tenant/changes'
+  }
+  return role === 'OWNER' ? '/owner' : '/tenant'
 }

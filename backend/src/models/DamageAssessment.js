@@ -7,6 +7,7 @@ const CLASSIFICATIONS = [
   'MISSING_ITEM',
   'REQUIRES_REVIEW',
   'NO_ACTION',
+  'UNAUTHORIZED_CHANGE',
 ];
 
 const damageAssessmentSchema = new mongoose.Schema(

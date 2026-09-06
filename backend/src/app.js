@@ -9,6 +9,7 @@ import invitationRoutes from './routes/invitation.routes.js';
 import inspectionRoutes from './routes/inspection.routes.js';
 import settlementRoutes from './routes/settlement.routes.js';
 import notificationRoutes from './routes/notification.routes.js';
+import handoverRoutes from './routes/handover.routes.js';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware.js';
 import { UPLOADS_ROOT } from './middleware/upload.middleware.js';
 import { corsOrigin } from './config/cors.js';
@@ -28,8 +29,8 @@ app.use(
     credentials: true,
   }),
 );
-app.use(express.json({ limit: '100kb' }));
-app.use(express.urlencoded({ extended: true, limit: '100kb' }));
+app.use(express.json({ limit: '6mb' }));
+app.use(express.urlencoded({ extended: true, limit: '6mb' }));
 app.use(cookieParser());
 app.use('/uploads', express.static(UPLOADS_ROOT));
 
@@ -47,6 +48,7 @@ app.use('/api/invitations', invitationRoutes);
 app.use('/api/inspections', inspectionRoutes);
 app.use('/api/settlement', settlementRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api', handoverRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

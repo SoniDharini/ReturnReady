@@ -1,3 +1,4 @@
+import { isInspectionFullyApproved } from '@/lib/inspectionStatus'
 import type { Inspection, Tenancy } from '@/types'
 
 export type OccupancyStatus =
@@ -126,7 +127,7 @@ export function getOwnerAction(
     }
   }
 
-  if (!moveIn || ['DRAFT', 'IN_PROGRESS'].includes(moveIn.status)) {
+  if (!isInspectionFullyApproved(moveIn) && (!moveIn || ['DRAFT', 'IN_PROGRESS'].includes(moveIn.status))) {
     return {
       kind: 'action',
       title: 'Move-in inspection pending',
@@ -136,7 +137,7 @@ export function getOwnerAction(
     }
   }
 
-  if (moveIn.status === 'APPROVAL_PENDING') {
+  if (moveIn && !isInspectionFullyApproved(moveIn) && moveIn.status === 'APPROVAL_PENDING') {
     return {
       kind: 'action',
       title: 'Approval required',
@@ -224,7 +225,7 @@ export function getTenantAction(
   const moveIn = inspections.find((i) => i.type === 'MOVE_IN')
   const moveOut = inspections.find((i) => i.type === 'MOVE_OUT')
 
-  if (moveIn?.status === 'APPROVAL_PENDING' && !moveIn.tenantApproved) {
+  if (!isInspectionFullyApproved(moveIn) && moveIn?.status === 'APPROVAL_PENDING' && !moveIn.tenantApproved) {
     return {
       kind: 'action',
       title: 'Action required',

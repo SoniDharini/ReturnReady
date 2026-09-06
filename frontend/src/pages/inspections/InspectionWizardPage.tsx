@@ -8,8 +8,14 @@ import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { useAppPaths } from '@/hooks/useAppPaths'
 import { getErrorMessage } from '@/services/api'
+import {
+  ApprovedChangesSection,
+  RoomHandoverContext,
+} from '@/components/handover/HandoverReviewSections'
+import { changesForRoom } from '@/lib/handoverUi'
 import { getInspection, updateInspectionStep } from '@/services/inspection.service'
-import type { InspectionDetail, InspectionItem } from '@/types'
+import { listChangeRequests } from '@/services/handover.service'
+import type { InspectionDetail, InspectionItem, PropertyChangeRequest } from '@/types'
 
 type WizardStep =
   | { kind: 'room'; roomId: string; roomName: string }
@@ -26,6 +32,7 @@ export function InspectionWizardPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [savingStep, setSavingStep] = useState(false)
+  const [approvedChanges, setApprovedChanges] = useState<PropertyChangeRequest[]>([])
 
   const load = useCallback(async () => {
     if (!inspectionId) return
@@ -34,6 +41,14 @@ export function InspectionWizardPage() {
       const data = await getInspection(inspectionId)
       setDetail(data)
       setStepIndex(data.inspection.currentStepIndex || 0)
+      if (data.inspection.type === 'MOVE_OUT') {
+        const changeData = await listChangeRequests(data.inspection.tenancyId).catch(() => null)
+        setApprovedChanges(
+          (changeData?.requests || []).filter((r) =>
+            ['APPROVED', 'COMPLETED'].includes(r.status),
+          ),
+        )
+      }
     } catch (err) {
       setError(getErrorMessage(err, 'Unable to load inspection'))
     } finally {
@@ -175,6 +190,12 @@ export function InspectionWizardPage() {
       </Card>
 
       <div className="space-y-6">
+        {isMoveOut && approvedChanges.length > 0 && currentStep?.kind !== 'room' ? (
+          <ApprovedChangesSection
+            title="Approved Mid-Tenancy Change"
+            requests={approvedChanges}
+          />
+        ) : null}
         {currentStep?.kind === 'room' && currentRoom ? (
           <div className="space-y-4">
             <div>
@@ -185,6 +206,28 @@ export function InspectionWizardPage() {
                   : 'Inspect the room and each inventory item in this space.'}
               </p>
             </div>
+            {isMoveOut ? (
+              <RoomHandoverContext
+                roomName={currentRoom.roomName}
+                baselineSummary={
+                  currentRoom.items
+                    .map((item) => {
+                      const baseline = getBaselineForItem(item)
+                      return baseline
+                        ? `${item.itemName || item.itemType}: ${baseline.condition || 'recorded'}`
+                        : null
+                    })
+                    .filter(Boolean)
+                    .slice(0, 4)
+                    .join(' · ') || 'As recorded at Move-In'
+                }
+                requests={changesForRoom(
+                  approvedChanges,
+                  currentRoom.roomId,
+                  currentRoom.roomName,
+                )}
+              />
+            ) : null}
             {currentRoom.items.map((item) => (
               <InspectionItemCard
                 key={item.id}

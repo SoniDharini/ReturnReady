@@ -6,14 +6,19 @@ import { tenancySchema, tenancyUpdateSchema, startMoveOutSchema, validateBody } 
 
 const router = Router();
 
-router.use(protect, requireOwner);
+router.use(protect);
 
-router.get('/', tenancyController.list);
-router.post('/', validateBody(tenancySchema), tenancyController.create);
-router.get('/:id', tenancyController.getOne);
-router.patch('/:id', validateBody(tenancyUpdateSchema), tenancyController.update);
-router.post('/:id/start-move-out', validateBody(startMoveOutSchema), tenancyController.startMoveOut);
-router.post('/:id/cancel-invite', tenancyController.cancelInvite);
-router.post('/:id/resend-invite', tenancyController.resendInvite);
+router.get('/', requireOwner, tenancyController.list);
+router.post('/', requireOwner, validateBody(tenancySchema), tenancyController.create);
+router.get('/:id', requireOwner, tenancyController.getOne);
+router.patch('/:id', requireOwner, validateBody(tenancyUpdateSchema), tenancyController.update);
+router.post(
+  '/:id/start-move-out',
+  requireOwner,
+  validateBody(startMoveOutSchema),
+  tenancyController.startMoveOut,
+);
+router.post('/:id/cancel-invite', requireOwner, tenancyController.cancelInvite);
+router.post('/:id/resend-invite', requireOwner, tenancyController.resendInvite);
 
 export default router;

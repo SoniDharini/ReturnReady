@@ -10,8 +10,9 @@ import { useAuth } from '@/context/AuthContext'
 import { useAppPaths } from '@/hooks/useAppPaths'
 import { formatDateTime } from '@/lib/utils'
 import { getErrorMessage } from '@/services/api'
+import { listConditions } from '@/services/handover.service'
 import { approveInspection, getInspection } from '@/services/inspection.service'
-import type { InspectionDetail } from '@/types'
+import type { InspectionDetail, TenancyCondition } from '@/types'
 
 export function InspectionApprovalPage() {
   const { user } = useAuth()
@@ -24,12 +25,18 @@ export function InspectionApprovalPage() {
   const [approving, setApproving] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [error, setError] = useState('')
+  const [conditions, setConditions] = useState<TenancyCondition[]>([])
 
   const load = async () => {
     if (!inspectionId) return
     setLoading(true)
     try {
-      setDetail(await getInspection(inspectionId))
+      const data = await getInspection(inspectionId)
+      setDetail(data)
+      if (data.inspection.tenancyId) {
+        const conditionData = await listConditions(data.inspection.tenancyId).catch(() => null)
+        setConditions(conditionData?.conditions || [])
+      }
     } catch (err) {
       setError(getErrorMessage(err, 'Unable to load inspection'))
     } finally {
@@ -95,7 +102,7 @@ export function InspectionApprovalPage() {
                 ) : null}
               </div>
               <Badge tone={ownerApproved ? 'success' : 'warning'}>
-                {ownerApproved ? 'Approved ✓' : 'Pending'}
+                {ownerApproved ? 'Approved ✓' : locked ? '—' : 'Pending'}
               </Badge>
             </div>
           </div>
@@ -131,19 +138,44 @@ export function InspectionApprovalPage() {
         {error ? <p className="mt-3 text-sm text-danger">{error}</p> : null}
       </Card>
 
+      {conditions.length ? (
+        <Card>
+          <h2 className="text-lg font-bold text-ink">Conditions Before Moving In</h2>
+          <ul className="mt-3 space-y-2 text-sm">
+            {conditions.map((condition) => (
+              <li key={condition.id}>
+                <p className="font-semibold text-ink">✓ {condition.title}</p>
+                {condition.description ? (
+                  <p className="text-ink-secondary">{condition.description}</p>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
+
       {locked ? (
         <Card className="border-brand-200 bg-brand-50/50 text-center">
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-brand-600 text-white">
             <Lock className="h-5 w-5" />
           </div>
-          <h2 className="mt-4 text-xl font-bold text-ink">Move-In Record Locked</h2>
-          <p className="mt-2 text-sm text-ink-secondary">
-            This inspection has been approved by both parties and is now the official property
-            baseline.
+          <h2 className="mt-4 text-xl font-bold text-ink">Move-In Inspection Completed</h2>
+          <div className="mt-4 space-y-2 text-sm font-semibold text-ink">
+            <p>Owner</p>
+            <p>{ownerApproved ? '✓ Approved' : 'Pending'}</p>
+            <p className="mt-2">Tenant</p>
+            <p>{tenantApproved ? '✓ Approved' : 'Pending'}</p>
+          </div>
+          <p className="mt-4 text-sm text-ink-muted">
+            Completed on:
+            <br />
+            {inspection.lockedAt ? formatDateTime(inspection.lockedAt) : '—'}
           </p>
-          {inspection.lockedAt ? (
-            <p className="mt-3 text-sm font-semibold text-ink">{formatDateTime(inspection.lockedAt)}</p>
-          ) : null}
+          <p className="mt-2 text-sm font-semibold text-ink">
+            Status:
+            <br />
+            Locked
+          </p>
           <Button className="mt-6" variant="secondary" onClick={() => navigate(paths.inspections)}>
             Back to Inspections
           </Button>

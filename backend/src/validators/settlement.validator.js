@@ -11,6 +11,7 @@ export const damageAssessmentSchema = z.object({
     'MISSING_ITEM',
     'REQUIRES_REVIEW',
     'NO_ACTION',
+    'UNAUTHORIZED_CHANGE',
   ]),
   description: z.string().trim().max(2000).optional().default(''),
 });
@@ -23,6 +24,8 @@ export const deductionSchema = z.object({
   amount: z.coerce.number().min(0),
   damageAssessmentId: z.string().optional().nullable(),
   inspectionItemId: z.string().optional().nullable(),
+  tenancyConditionId: z.string().optional().nullable(),
+  propertyChangeRequestId: z.string().optional().nullable(),
 });
 
 export const disputeSchema = z.object({

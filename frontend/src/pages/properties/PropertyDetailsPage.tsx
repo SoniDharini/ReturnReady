@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Camera, ChevronDown, ChevronRight, ImagePlus, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Camera, ChevronDown, ChevronRight, ImagePlus, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
 import {
+  deleteProperty,
   deletePropertyImage,
   getProperty,
   resolveMediaUrl,
@@ -17,7 +18,13 @@ import { getErrorMessage } from '@/services/api'
 import type { Property } from '@/types'
 import { cn } from '@/lib/utils'
 import { useAppPaths } from '@/hooks/useAppPaths'
+import { Modal } from '@/components/ui/Modal'
 import { countRoomsByType, groupRooms } from '@/lib/propertyRooms'
+import {
+  getAvailabilityLabel,
+  getPropertyOccupancyDescription,
+  isPropertyAvailable,
+} from '@/lib/propertyAvailability'
 
 const tabs = ['Overview', 'Rooms', 'Photos', 'Tenancies'] as const
 
@@ -31,6 +38,8 @@ export function PropertyDetailsPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const load = async () => {
@@ -91,12 +100,77 @@ export function PropertyDetailsPage() {
         description={`${property.type} · ${property.address}, ${property.city}`}
         actions={
           <>
-            <Badge status={property.status}>{property.status}</Badge>
+            <Badge status={isPropertyAvailable(property) ? 'Active' : 'Proposed'}>
+              {getAvailabilityLabel(property.availability)}
+            </Badge>
             <Button variant="secondary" onClick={() => navigate(paths.propertyEdit(property.id))}>
               <Pencil className="h-4 w-4" />
               Edit Property
             </Button>
-            <Button onClick={() => navigate(paths.tenancyNew)}>Invite Tenant</Button>
+            {isPropertyAvailable(property) ? (
+              <Button
+                onClick={() =>
+                  navigate(`${paths.tenancyNew}?propertyId=${encodeURIComponent(property.id)}`)
+                }
+              >
+                Invite Tenant
+              </Button>
+            ) : property.activeTenancyId ? (
+              <Button
+                variant="secondary"
+                onClick={() => navigate(paths.tenancy(property.activeTenancyId!))}
+              >
+                View Tenancy
+              </Button>
+            ) : null}
+            <div className="relative">
+              <Button
+                variant="tertiary"
+                size="icon"
+                aria-label="More actions"
+                onClick={() => setMenuOpen((v) => !v)}
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+              {menuOpen ? (
+                <div className="absolute right-0 z-10 mt-1 w-44 rounded-xl border border-border bg-white p-1 shadow-elevated">
+                  {property.activeTenancyId ? (
+                    <button
+                      type="button"
+                      className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-surface-muted"
+                      onClick={() => {
+                        navigate(paths.tenancy(property.activeTenancyId!))
+                        setMenuOpen(false)
+                      }}
+                    >
+                      View Tenancy
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-surface-muted"
+                    onClick={() => {
+                      navigate(paths.propertyEdit(property.id))
+                      setMenuOpen(false)
+                    }}
+                  >
+                    Edit Property
+                  </button>
+                  <button
+                    type="button"
+                    className="w-full rounded-lg px-3 py-2 text-left text-sm text-danger hover:bg-danger-bg disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={!isPropertyAvailable(property)}
+                    onClick={() => {
+                      if (!isPropertyAvailable(property)) return
+                      setDeleteOpen(true)
+                      setMenuOpen(false)
+                    }}
+                  >
+                    Delete Property
+                  </button>
+                </div>
+              ) : null}
+            </div>
           </>
         }
       />
@@ -142,8 +216,12 @@ export function PropertyDetailsPage() {
               <dd className="mt-1 font-semibold">{property.images?.length || 0}</dd>
             </div>
             <div>
+              <dt className="text-ink-muted">Availability</dt>
+              <dd className="mt-1 font-semibold">{getAvailabilityLabel(property.availability)}</dd>
+            </div>
+            <div>
               <dt className="text-ink-muted">Current Tenant</dt>
-              <dd className="mt-1 font-semibold">{property.activeTenancy || 'None'}</dd>
+              <dd className="mt-1 font-semibold">{getPropertyOccupancyDescription(property)}</dd>
             </div>
             <div className="sm:col-span-2">
               <dt className="text-ink-muted">Address</dt>
@@ -348,6 +426,40 @@ export function PropertyDetailsPage() {
           </Button>
         </Card>
       ) : null}
+      {error ? <p className="mt-4 text-sm text-danger">{error}</p> : null}
+
+      <Modal
+        open={deleteOpen}
+        onClose={() => setDeleteOpen(false)}
+        title="Delete Property?"
+        description={`You are about to remove ${property.name}. Properties with rental history will be archived instead of permanently deleted.`}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setDeleteOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={async () => {
+                try {
+                  const result = await deleteProperty(property.id)
+                  setDeleteOpen(false)
+                  if (result.archived) {
+                    navigate(paths.properties)
+                  } else {
+                    navigate(paths.properties)
+                  }
+                } catch (err) {
+                  setError(getErrorMessage(err, 'Unable to delete property'))
+                  setDeleteOpen(false)
+                }
+              }}
+            >
+              Delete Property
+            </Button>
+          </>
+        }
+      />
     </div>
   )
 }

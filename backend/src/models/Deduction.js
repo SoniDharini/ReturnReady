@@ -24,6 +24,16 @@ const deductionSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       default: null,
     },
+    tenancyConditionId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'TenancyCondition',
+      default: null,
+    },
+    propertyChangeRequestId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'PropertyChangeRequest',
+      default: null,
+    },
     title: { type: String, required: true, trim: true },
     category: { type: String, trim: true, default: '' },
     reason: { type: String, trim: true, default: '' },
@@ -66,6 +76,9 @@ deductionSchema.set('toJSON', {
     ret.tenancyId = ret.tenancyId?.toString?.() || ret.tenancyId;
     ret.propertyId = ret.propertyId?.toString?.() || ret.propertyId;
     ret.createdBy = ret.createdBy?.toString?.() || ret.createdBy;
+    ret.tenancyConditionId = ret.tenancyConditionId?.toString?.() || ret.tenancyConditionId || null;
+    ret.propertyChangeRequestId =
+      ret.propertyChangeRequestId?.toString?.() || ret.propertyChangeRequestId || null;
     delete ret._id;
     delete ret.__v;
     return ret;

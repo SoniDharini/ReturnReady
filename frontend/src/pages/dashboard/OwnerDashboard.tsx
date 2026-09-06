@@ -9,9 +9,12 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { useAuth } from '@/context/AuthContext'
 import { listProperties } from '@/services/property.service'
 import { listTenancies } from '@/services/tenancy.service'
+import { listPendingChangeRequests } from '@/services/handover.service'
+import type { PropertyChangeRequest } from '@/types'
 import { listTenancyInspections } from '@/services/inspection.service'
 import { getErrorMessage } from '@/services/api'
 import type { Inspection, Property, Tenancy } from '@/types'
+import { getInspectionDisplayStatus } from '@/lib/inspectionStatus'
 import { appPaths } from '@/lib/paths'
 import {
   formatDisplayDate,
@@ -29,12 +32,17 @@ export function OwnerDashboard() {
   const [inspectionsByTenancy, setInspectionsByTenancy] = useState<Record<string, Inspection[]>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [pendingChanges, setPendingChanges] = useState<PropertyChangeRequest[]>([])
 
   useEffect(() => {
     let cancelled = false
     async function load() {
       try {
-        const [props, tens] = await Promise.all([listProperties(), listTenancies()])
+        const [props, tens, pending] = await Promise.all([
+          listProperties(),
+          listTenancies(),
+          listPendingChangeRequests().catch(() => [] as PropertyChangeRequest[]),
+        ])
         const inspectionEntries = await Promise.all(
           tens.map(async (tenancy) => {
             try {
@@ -49,6 +57,7 @@ export function OwnerDashboard() {
           setProperties(props.filter((p) => p.status !== 'Archived'))
           setTenancies(tens)
           setInspectionsByTenancy(Object.fromEntries(inspectionEntries))
+          setPendingChanges(pending)
         }
       } catch (err) {
         if (!cancelled) setError(getErrorMessage(err, 'Unable to load dashboard'))
@@ -106,6 +115,25 @@ export function OwnerDashboard() {
 
       {error ? <p className="text-sm text-danger">{error}</p> : null}
 
+      {pendingChanges.length > 0 ? (
+        <Card className="border-warning bg-warning-bg/30">
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+            Action Required
+          </p>
+          <h2 className="mt-2 text-lg font-bold text-ink">
+            {pendingChanges.length} property change request
+            {pendingChanges.length === 1 ? '' : 's'} require
+            {pendingChanges.length === 1 ? 's' : ''} your approval.
+          </h2>
+          <Button
+            className="mt-4"
+            onClick={() => navigate(paths.propertyChangeChat(pendingChanges[0]?.tenancyId))}
+          >
+            Review Request
+          </Button>
+        </Card>
+      ) : null}
+
       <section>
         <h2 className="mb-4 text-lg font-bold text-ink">Your Properties</h2>
         <div className="grid gap-4 lg:grid-cols-2">
@@ -142,6 +170,18 @@ export function OwnerDashboard() {
                       <dt className="text-ink-muted">Move-In</dt>
                       <dd className="font-semibold text-ink">{formatDisplayDate(tenancy.moveIn)}</dd>
                     </div>
+                    {inspections.find((i) => i.type === 'MOVE_IN') ? (
+                      <div>
+                        <dt className="text-ink-muted">Move-In Inspection</dt>
+                        <dd className="font-semibold text-ink">
+                          {
+                            getInspectionDisplayStatus(
+                              inspections.find((i) => i.type === 'MOVE_IN'),
+                            ).label
+                          }
+                        </dd>
+                      </div>
+                    ) : null}
                     <div>
                       <dt className="text-ink-muted">Expected Move-Out</dt>
                       <dd className="font-semibold text-ink">{formatDisplayDate(tenancy.moveOut)}</dd>

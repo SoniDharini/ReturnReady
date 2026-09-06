@@ -4,6 +4,7 @@ import { CheckCircle2, Download, FileText } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { useAuth } from '@/context/AuthContext'
 import { useAppPaths } from '@/hooks/useAppPaths'
 import { formatDisplayDate } from '@/lib/tenancyContext'
 import { formatCurrency } from '@/lib/utils'
@@ -15,8 +16,12 @@ import type { SettlementData } from '@/types'
 export function SettlementCompletePage() {
   const navigate = useNavigate()
   const paths = useAppPaths()
+  const { user } = useAuth()
   const [searchParams] = useSearchParams()
-  const tenancyId = searchParams.get('tenancyId') || ''
+  const tenancyId =
+    searchParams.get('tenancyId') ||
+    (user?.role === 'TENANT' ? user.tenantAccess?.tenancyId : '') ||
+    ''
 
   const [data, setData] = useState<SettlementData | null>(null)
   const [loading, setLoading] = useState(true)

@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { useAppPaths } from '@/hooks/useAppPaths'
 import { getErrorMessage } from '@/services/api'
+import { getInspectionDisplayStatus } from '@/lib/inspectionStatus'
 import { listMyInspections } from '@/services/inspection.service'
 import type { Inspection } from '@/types'
 
@@ -57,6 +58,7 @@ export function InspectionsPage() {
         <div className="grid gap-3">
           {inspections.map((inspection) => {
             const inProgress = ['DRAFT', 'IN_PROGRESS'].includes(inspection.status)
+            const display = getInspectionDisplayStatus(inspection)
             return (
               <Card key={inspection.id} interactive className="flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -66,9 +68,7 @@ export function InspectionsPage() {
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Badge status={inspection.status === 'APPROVAL_PENDING' ? 'Awaiting Approval' : 'In Progress'}>
-                    {inspection.status.replaceAll('_', ' ')}
-                  </Badge>
+                  <Badge status={display.badgeStatus}>{display.label}</Badge>
                   <Button
                     size="sm"
                     variant="secondary"

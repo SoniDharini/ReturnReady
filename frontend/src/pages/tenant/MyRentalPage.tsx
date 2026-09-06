@@ -8,7 +8,9 @@ import { Card } from '@/components/ui/Card'
 import { formatCurrency } from '@/lib/utils'
 import { useAppPaths } from '@/hooks/useAppPaths'
 import { listTenancyInspections } from '@/services/inspection.service'
-import type { Inspection } from '@/types'
+import { acceptConditions, listChangeRequests, listConditions } from '@/services/handover.service'
+import { ChangeRequestCard } from '@/components/handover/ChangeRequestCard'
+import type { Inspection, PropertyChangeRequest, TenancyCondition } from '@/types'
 import {
   formatDisplayDate,
   getOccupancyLabel,
@@ -21,12 +23,21 @@ export function MyRentalPage() {
   const { user } = useAuth()
   const access = user?.tenantAccess
   const [inspections, setInspections] = useState<Inspection[]>([])
+  const [changeRequests, setChangeRequests] = useState<PropertyChangeRequest[]>([])
+  const [conditions, setConditions] = useState<TenancyCondition[]>([])
+  const [accepting, setAccepting] = useState(false)
 
   useEffect(() => {
     if (!access?.tenancyId) return
     void listTenancyInspections(access.tenancyId)
       .then(setInspections)
       .catch(() => setInspections([]))
+    void listChangeRequests(access.tenancyId)
+      .then((data) => setChangeRequests(data.requests))
+      .catch(() => setChangeRequests([]))
+    void listConditions(access.tenancyId)
+      .then((data) => setConditions(data.conditions))
+      .catch(() => setConditions([]))
   }, [access?.tenancyId])
 
   const tenancyLike = access
@@ -95,6 +106,71 @@ export function MyRentalPage() {
           <Button className="mt-4" onClick={() => navigate(action.path!)}>
             {action.label}
           </Button>
+        ) : null}
+      </Card>
+
+      {conditions.length ? (
+        <Card>
+          <h2 className="text-lg font-bold text-ink">Property Handover Conditions</h2>
+          <p className="mt-1 text-sm text-ink-secondary">
+            These are the conditions you agreed to before Move-In.
+          </p>
+          <ul className="mt-4 space-y-2">
+            {conditions.map((condition) => (
+              <li key={condition.id} className="rounded-xl bg-surface-muted px-4 py-3">
+                <p className="font-semibold text-ink">
+                  {condition.status === 'AMENDMENT_PENDING' ? '' : '✓ '}
+                  {condition.title}
+                  {condition.status === 'AMENDMENT_PENDING' ? ' (new amendment)' : ''}
+                </p>
+                {condition.description ? (
+                  <p className="mt-1 text-sm text-ink-secondary">{condition.description}</p>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+          {conditions.some((c) => c.status === 'AMENDMENT_PENDING') && access?.tenancyId ? (
+            <Button
+              className="mt-4"
+              disabled={accepting}
+              onClick={async () => {
+                setAccepting(true)
+                try {
+                  const data = await acceptConditions(access.tenancyId)
+                  setConditions(data.conditions)
+                } finally {
+                  setAccepting(false)
+                }
+              }}
+            >
+              {accepting ? 'Accepting conditions...' : 'Acknowledge New Conditions'}
+            </Button>
+          ) : null}
+        </Card>
+      ) : null}
+
+      <Card>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-bold text-ink">Property Changes</h2>
+            <p className="mt-1 text-sm text-ink-secondary">
+              Request owner permission before installing, removing, or altering anything.
+            </p>
+          </div>
+          <Button onClick={() => navigate(paths.propertyChanges)}>
+            {changeRequests.length ? 'Open Conversation' : 'Talk with Owner'}
+          </Button>
+        </div>
+        {changeRequests.length ? (
+          <ul className="mt-4 space-y-3">
+            {changeRequests.slice(0, 3).map((request) => (
+              <ChangeRequestCard
+                key={request.id}
+                request={request}
+                onOpen={() => navigate(paths.changeRequest(request.id))}
+              />
+            ))}
+          </ul>
         ) : null}
       </Card>
     </div>

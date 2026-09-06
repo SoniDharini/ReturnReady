@@ -72,6 +72,12 @@ export type AuthUser = {
   }
 }
 
+export type PropertyAvailability =
+  | 'AVAILABLE'
+  | 'OCCUPIED'
+  | 'MOVE_OUT_IN_PROGRESS'
+  | 'SETTLEMENT_PENDING'
+
 export type Property = {
   id: string
   name: string
@@ -84,6 +90,10 @@ export type Property = {
   bathrooms: number
   status: string
   activeTenancy: string | null
+  availability?: PropertyAvailability
+  activeTenantName?: string | null
+  activeTenancyId?: string | null
+  canAssignTenant?: boolean
   roomList?: PropertyRoom[]
   images?: PropertyImage[]
 }
@@ -124,6 +134,8 @@ export type Invitation = {
   moveOut: string
   deposit: number
   tenancyId: string
+  conditions?: TenancyCondition[]
+  requiresConditionAcceptance?: boolean
 }
 
 export type InspectionCondition = 'EXCELLENT' | 'GOOD' | 'FAIR' | 'DAMAGED' | 'MISSING'
@@ -316,6 +328,9 @@ export type ComparisonData = {
     moveInImageUrl?: string
     moveOutImageUrl?: string
   }>
+  approvedChanges?: PropertyChangeRequest[]
+  unapprovedChanges?: PropertyChangeRequest[]
+  conditions?: TenancyCondition[]
 }
 
 export type DamageClassification =
@@ -325,6 +340,7 @@ export type DamageClassification =
   | 'MISSING_ITEM'
   | 'REQUIRES_REVIEW'
   | 'NO_ACTION'
+  | 'UNAUTHORIZED_CHANGE'
 
 export type DamageAssessment = {
   id: string
@@ -352,11 +368,14 @@ export type Deduction = {
   propertyId: string
   damageAssessmentId?: string | null
   inspectionItemId?: string | null
+  tenancyConditionId?: string | null
+  propertyChangeRequestId?: string | null
   title: string
   category?: string
   reason: string
   description: string
   amount: number
+  currentAmount?: number
   originalAmount?: number
   resolvedAmount?: number | null
   resolutionType?: 'CANCEL' | 'MODIFY' | 'MAINTAIN' | null
@@ -368,6 +387,16 @@ export type Deduction = {
   resolvedBy?: string | null
   resolvedAt?: string | null
   submittedForReviewAt?: string | null
+  requiresTenantReview?: boolean
+  isRevisedDeduction?: boolean
+  context?: {
+    itemName?: string
+    classification?: string
+    moveInCondition?: string | null
+    moveOutCondition?: string | null
+    moveInEvidence?: Array<{ id?: string; fileUrl?: string; caption?: string }>
+    moveOutEvidence?: Array<{ id?: string; fileUrl?: string; caption?: string }>
+  } | null
   createdAt?: string
 }
 
@@ -391,13 +420,24 @@ export type SettlementFinancials = {
   acceptedDeductionTotal: number
   disputedDeductionTotal: number
   proposedDeductionTotal: number
+  pendingReviewTotal?: number
   finalDeductionTotal: number
   projectedRefund: number
   finalRefund: number | null
   exceedsDeposit: boolean
+  depositExhausted?: boolean
+  additionalAmountClaimed?: number
   allResolved: boolean
   hasOpenDisputes: boolean
   hasPendingProposed: boolean
+}
+
+export type SettlementReadiness = {
+  ready: boolean
+  blockers: string[]
+  moveOutComplete: boolean
+  comparisonAvailable: boolean
+  damageAssessmentComplete: boolean
 }
 
 export type SettlementRecord = {
@@ -478,6 +518,7 @@ export type SettlementTenancySummary = {
   id: string
   propertyName: string
   tenantName: string
+  ownerName?: string
   deposit: number
   stage: string
   status: string
@@ -492,8 +533,160 @@ export type SettlementData = {
   disputes: Dispute[]
   settlement: SettlementRecord | null
   financials: SettlementFinancials
+  readiness?: SettlementReadiness
   signatures: SignatureRecord[]
   report: HandoverReport | null
+  conditions?: TenancyCondition[]
+  changeRequests?: PropertyChangeRequest[]
+  handover?: {
+    conditionsAccepted: boolean
+    conditionsAcceptedAt?: string | null
+    approvedChanges: PropertyChangeRequest[]
+    rejectedChanges: PropertyChangeRequest[]
+  }
+}
+
+export type ConditionCategory =
+  | 'CLEANING'
+  | 'PAINTING'
+  | 'STRUCTURAL_CHANGE'
+  | 'FIXTURE_CHANGE'
+  | 'APPLIANCE'
+  | 'INVENTORY'
+  | 'KEYS_ACCESS'
+  | 'GENERAL'
+  | 'CUSTOM'
+
+export type ConditionStatus = 'DRAFT' | 'ACCEPTED' | 'AMENDMENT_PENDING' | 'SUPERSEDED'
+
+export type ComplianceStatus = 'NEEDS_REVIEW' | 'COMPLIED' | 'NOT_COMPLIED' | 'NOT_APPLICABLE'
+
+export type TenancyCondition = {
+  id: string
+  tenancyId: string
+  propertyId: string
+  ownerId: string
+  title: string
+  description: string
+  category: ConditionCategory
+  isMandatory: boolean
+  requiresTenantAcceptance: boolean
+  isAmendment?: boolean
+  status: ConditionStatus
+  acceptedAt?: string | null
+  complianceStatus: ComplianceStatus
+  complianceNotes?: string
+  complianceReviewedAt?: string | null
+  complianceEvidence?: Array<{ fileUrl: string; caption?: string; uploadedAt?: string }>
+  createdAt?: string
+  updatedAt?: string
+}
+
+export type ChangeRequestType =
+  | 'ADD_ITEM'
+  | 'REMOVE_ITEM'
+  | 'REPLACE_ITEM'
+  | 'INSTALL_FIXTURE'
+  | 'REMOVE_FIXTURE'
+  | 'PAINT_CHANGE'
+  | 'DRILLING'
+  | 'STRUCTURAL_CHANGE'
+  | 'APPLIANCE_INSTALLATION'
+  | 'APPLIANCE_REMOVAL'
+  | 'OTHER'
+
+export type ChangeRequestStatus =
+  | 'PENDING'
+  | 'APPROVED_PENDING_TENANT_ACCEPTANCE'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'CANCELLED'
+  | 'COMPLETED'
+
+export type PropertyChangeMessageType =
+  | 'TEXT'
+  | 'IMAGE'
+  | 'FILE'
+  | 'APPROVAL_REQUEST'
+  | 'APPROVAL_GRANTED'
+  | 'APPROVAL_REJECTED'
+  | 'CONDITION_PROPOSED'
+  | 'CONDITION_ACCEPTED'
+  | 'CHANGE_AUTHORIZED'
+  | 'CHANGE_COMPLETED'
+  | 'SYSTEM'
+
+export type PropertyChangeMessage = {
+  id: string
+  tenancyId: string
+  propertyId: string
+  senderId?: string | null
+  senderRole: 'OWNER' | 'TENANT' | 'SYSTEM'
+  senderName?: string
+  messageType: PropertyChangeMessageType
+  text: string
+  attachments: Array<{
+    id?: string
+    fileUrl: string
+    mimeType?: string
+    caption?: string
+    uploadedAt?: string
+  }>
+  changeRequestId?: string | null
+  request?: PropertyChangeRequest | null
+  createdAt: string
+}
+
+export type ChangeRequestEvidence = {
+  id?: string
+  fileUrl: string
+  caption?: string
+  uploadedAt?: string
+}
+
+export type ChangeRequestTimelineItem = {
+  action: string
+  note?: string
+  actorRole: 'OWNER' | 'TENANT'
+  at: string
+}
+
+export type PropertyChangeRequest = {
+  id: string
+  tenancyId: string
+  propertyId: string
+  tenantId: string
+  ownerId: string
+  propertyName?: string
+  tenantName?: string
+  ownerName?: string
+  roomId?: string
+  roomName?: string
+  inventoryItemId?: string
+  changeType: ChangeRequestType
+  title: string
+  description: string
+  reason: string
+  requestedAction?: string
+  beforeState?: string
+  requestedState?: string
+  evidence: ChangeRequestEvidence[]
+  completionEvidence: ChangeRequestEvidence[]
+  status: ChangeRequestStatus
+  ownerResponse?: string
+  ownerNotes?: string
+  ownerConditions?: string
+  tenantConditionsAccepted?: boolean
+  tenantConditionsAcceptedAt?: string | null
+  authorizedAt?: string | null
+  authorized?: boolean
+  requestedAt?: string
+  reviewedAt?: string | null
+  completedAt?: string | null
+  complianceStatus?: ComplianceStatus
+  complianceNotes?: string
+  timeline?: ChangeRequestTimelineItem[]
+  createdAt?: string
 }
 
 export type AppNotification = {

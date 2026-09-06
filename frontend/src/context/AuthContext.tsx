@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from 'react'
 import * as authApi from '@/services/auth.service'
-import { getAccessToken, getErrorMessage, setAccessToken } from '@/services/api'
+import { getAccessToken, getErrorMessage, refreshAccessToken, setAccessToken } from '@/services/api'
 import { roleHome } from '@/lib/paths'
 import type { AuthUser, Invitation, UserRole } from '@/types'
 import { isAxiosError } from 'axios'
@@ -28,7 +28,11 @@ type AuthContextValue = {
     phone: string
     password: string
   }) => Promise<AuthResult>
-  activateTenant: (token: string, password: string) => Promise<AuthResult>
+  activateTenant: (
+    token: string,
+    password: string,
+    conditionsAccepted?: boolean,
+  ) => Promise<AuthResult>
   refreshUser: () => Promise<void>
   logout: () => Promise<void>
   homePath: string
@@ -63,14 +67,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async function bootstrap() {
       try {
         if (!getAccessToken()) {
-          if (!cancelled) setUser(null)
-          return
+          await refreshAccessToken()
         }
         const me = await authApi.fetchMe()
         if (!cancelled) setUser(mapUser(me))
       } catch {
-        setAccessToken(null)
-        if (!cancelled) setUser(null)
+        try {
+          await refreshAccessToken()
+          const me = await authApi.fetchMe()
+          if (!cancelled) setUser(mapUser(me))
+        } catch {
+          setAccessToken(null)
+          if (!cancelled) setUser(null)
+        }
       } finally {
         if (!cancelled) setIsBootstrapping(false)
       }
@@ -140,9 +149,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return { ok: false, error: getErrorMessage(error, 'Unable to create account') }
         }
       },
-      activateTenant: async (token, password) => {
+      activateTenant: async (token, password, conditionsAccepted) => {
         try {
-          const result = await authApi.activateTenant({ token, password })
+          const result = await authApi.activateTenant({ token, password, conditionsAccepted })
           const mapped = mapUser(result.user)
           setUser(mapped)
           return { ok: true, redirectTo: '/tenant/dashboard' }

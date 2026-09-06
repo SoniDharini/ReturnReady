@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/Button'
 import { useAuth } from '@/context/AuthContext'
+import { useAppPaths } from '@/hooks/useAppPaths'
 import { formatDisplayDate } from '@/lib/tenancyContext'
 import {
   listNotifications,
@@ -20,6 +21,7 @@ type TopBarProps = {
 export function TopBar({ title, onMenuClick, settingsPath }: TopBarProps) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+  const paths = useAppPaths()
   const [menuOpen, setMenuOpen] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
   const [notifications, setNotifications] = useState<AppNotification[]>([])
@@ -117,6 +119,18 @@ export function TopBar({ title, onMenuClick, settingsPath }: TopBarProps) {
                         }`}
                         onClick={() => {
                           if (!n.isRead) void handleMarkRead(n.id)
+                          setNotifOpen(false)
+                          if (n.type?.startsWith('PROPERTY_CHANGE')) {
+                            navigate(paths.propertyChangeChat(n.tenancyId || undefined))
+                            return
+                          }
+                          if (n.tenancyId && n.type?.includes('MOVE_OUT')) {
+                            navigate(paths.comparison(n.tenancyId))
+                            return
+                          }
+                          if (n.tenancyId && (n.type?.includes('DEDUCTION') || n.type?.includes('SETTLEMENT') || n.type?.includes('REPORT'))) {
+                            navigate(paths.settlement(n.tenancyId))
+                          }
                         }}
                       >
                         <p className="text-sm font-semibold text-ink">{n.title}</p>

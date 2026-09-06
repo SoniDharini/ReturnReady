@@ -6,6 +6,13 @@ import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
+import {
+  ApprovedChangesSection,
+  ConditionReviewSection,
+  RoomHandoverContext,
+  UnapprovedChangesSection,
+} from '@/components/handover/HandoverReviewSections'
+import { changesForRoom } from '@/lib/handoverUi'
 import { Modal } from '@/components/ui/Modal'
 import { Textarea } from '@/components/ui/Textarea'
 import { useAuth } from '@/context/AuthContext'
@@ -45,6 +52,7 @@ const CLASSIFICATIONS: Array<{ value: DamageClassification; label: string }> = [
   { value: 'MISSING_ITEM', label: 'Missing Item' },
   { value: 'REQUIRES_REVIEW', label: 'Requires Review' },
   { value: 'NO_ACTION', label: 'No Action Required' },
+  { value: 'UNAUTHORIZED_CHANGE', label: 'Unauthorized Property Change' },
 ]
 
 function resultLabel(result: ComparisonResult) {
@@ -292,6 +300,16 @@ export function ComparisonPage() {
         </p>
       </Card>
 
+      <ApprovedChangesSection
+        title="Approved Mid-Tenancy Changes"
+        requests={data.approvedChanges || []}
+      />
+      <UnapprovedChangesSection requests={data.unapprovedChanges || []} />
+      <ConditionReviewSection
+        conditions={data.conditions || []}
+        isOwner={false}
+      />
+
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
         {[
           { label: 'Items Compared', value: data.summary.totalItems },
@@ -345,6 +363,20 @@ export function ComparisonPage() {
             </button>
             {expandedRooms[room.roomId] ? (
               <div className="mt-4 space-y-4">
+                <RoomHandoverContext
+                  roomName={room.roomName}
+                  baselineSummary={
+                    room.items
+                      .map((item) => `${item.itemName}: ${formatCondition(item.moveInCondition)}`)
+                      .slice(0, 4)
+                      .join(' · ') || 'As recorded at Move-In'
+                  }
+                  requests={changesForRoom(
+                    data.approvedChanges || [],
+                    room.roomId,
+                    room.roomName,
+                  )}
+                />
                 {room.items.map((item) => (
                   <ComparisonCard
                     key={item.key}

@@ -11,6 +11,7 @@ import { useAppPaths } from '@/hooks/useAppPaths'
 import { deleteProperty, listProperties } from '@/services/property.service'
 import { getErrorMessage } from '@/services/api'
 import type { Property } from '@/types'
+import { getAvailabilityLabel, isPropertyAvailable } from '@/lib/propertyAvailability'
 
 export function PropertiesPage() {
   const navigate = useNavigate()
@@ -19,7 +20,7 @@ export function PropertiesPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [menuId, setMenuId] = useState<string | null>(null)
-  const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<Property | null>(null)
 
   const load = async () => {
     setLoading(true)
@@ -81,6 +82,7 @@ export function PropertiesPage() {
               <th className="px-5 py-3 font-semibold">Property</th>
               <th className="px-5 py-3 font-semibold">Type</th>
               <th className="px-5 py-3 font-semibold">Rooms</th>
+              <th className="px-5 py-3 font-semibold">Availability</th>
               <th className="px-5 py-3 font-semibold">Active Tenancy</th>
               <th className="px-5 py-3 font-semibold">Status</th>
               <th className="px-5 py-3 font-semibold">Actions</th>
@@ -97,7 +99,14 @@ export function PropertiesPage() {
                 </td>
                 <td className="px-5 py-4 capitalize text-ink-secondary">{property.type}</td>
                 <td className="px-5 py-4 text-ink-secondary">{property.rooms}</td>
-                <td className="px-5 py-4 text-ink-secondary">{property.activeTenancy || '—'}</td>
+                <td className="px-5 py-4">
+                  <Badge status={isPropertyAvailable(property) ? 'Active' : 'Proposed'}>
+                    {getAvailabilityLabel(property.availability)}
+                  </Badge>
+                </td>
+                <td className="px-5 py-4 text-ink-secondary">
+                  {property.activeTenantName || property.activeTenancy || '—'}
+                </td>
                 <td className="px-5 py-4">
                   <Badge status={property.status}>{property.status}</Badge>
                 </td>
@@ -133,9 +142,11 @@ export function PropertiesPage() {
                       </button>
                       <button
                         type="button"
-                        className="w-full rounded-lg px-3 py-2 text-left text-sm text-danger hover:bg-danger-bg"
+                        className="w-full rounded-lg px-3 py-2 text-left text-sm text-danger hover:bg-danger-bg disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={!isPropertyAvailable(property)}
                         onClick={() => {
-                          setDeleteId(property.id)
+                          if (!isPropertyAvailable(property)) return
+                          setDeleteTarget(property)
                           setMenuId(null)
                         }}
                       >
@@ -174,26 +185,26 @@ export function PropertiesPage() {
       </div>
 
       <Modal
-        open={Boolean(deleteId)}
-        onClose={() => setDeleteId(null)}
+        open={Boolean(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
         title="Delete Property?"
         description={
-          deleteId
-            ? `You are about to delete ${properties.find((p) => p.id === deleteId)?.name || 'this property'}. Properties with rental history will be archived instead of permanently deleted.`
+          deleteTarget
+            ? `You are about to remove ${deleteTarget.name}. Properties with rental history will be archived instead of permanently deleted.`
             : ''
         }
         footer={
           <>
-            <Button variant="secondary" onClick={() => setDeleteId(null)}>
+            <Button variant="secondary" onClick={() => setDeleteTarget(null)}>
               Cancel
             </Button>
             <Button
               variant="destructive"
               onClick={async () => {
-                if (!deleteId) return
+                if (!deleteTarget) return
                 try {
-                  const result = await deleteProperty(deleteId)
-                  setDeleteId(null)
+                  const result = await deleteProperty(deleteTarget.id)
+                  setDeleteTarget(null)
                   setError(
                     result.archived
                       ? 'Property archived to preserve rental history.'
@@ -202,7 +213,7 @@ export function PropertiesPage() {
                   await load()
                 } catch (err) {
                   setError(getErrorMessage(err, 'Unable to delete property'))
-                  setDeleteId(null)
+                  setDeleteTarget(null)
                 }
               }}
             >

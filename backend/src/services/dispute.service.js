@@ -1,7 +1,9 @@
 import fs from 'fs';
 import path from 'path';
+import mongoose from 'mongoose';
 import { Deduction } from '../models/Deduction.js';
 import { Dispute } from '../models/Dispute.js';
+import { Settlement } from '../models/Settlement.js';
 import { Tenancy } from '../models/Tenancy.js';
 import { ApiError } from '../utils/ApiError.js';
 import { createNotification } from './notification.service.js';
@@ -11,6 +13,16 @@ import { UPLOADS_ROOT } from '../middleware/upload.middleware.js';
 
 const DISPUTE_UPLOADS_DIR = path.join(UPLOADS_ROOT, 'disputes');
 fs.mkdirSync(DISPUTE_UPLOADS_DIR, { recursive: true });
+
+function tenantCanReviewDeduction(deduction) {
+  return deduction.status === 'PROPOSED' && Boolean(deduction.submittedForReviewAt);
+}
+
+async function assertTenantAccess(tenancy) {
+  if (tenancy.stage === 'complete' || tenancy.status === 'Completed') {
+    throw new ApiError(403, 'Tenant access is closed for this tenancy');
+  }
+}
 
 export async function acceptDeduction(user, deductionId) {
   if (user.role !== 'TENANT') {
@@ -27,8 +39,19 @@ export async function acceptDeduction(user, deductionId) {
   });
   if (!tenancy) throw new ApiError(403, 'You do not have permission');
 
-  if (deduction.status !== 'PROPOSED') {
-    throw new ApiError(400, 'Only proposed deductions can be accepted');
+  await assertTenantAccess(tenancy);
+
+  const settlement = await Settlement.findOne({ tenancyId: tenancy._id });
+  if (settlement?.status === 'COMPLETED') {
+    throw new ApiError(400, 'Settlement is already completed');
+  }
+
+  if (!tenantCanReviewDeduction(deduction)) {
+    throw new ApiError(400, 'This deduction is not available for acceptance');
+  }
+
+  if (deduction.status === 'ACCEPTED') {
+    throw new ApiError(400, 'This deduction has already been accepted');
   }
 
   deduction.status = 'ACCEPTED';
@@ -62,8 +85,10 @@ export async function disputeDeduction(user, deductionId, payload) {
   });
   if (!tenancy) throw new ApiError(403, 'You do not have permission');
 
-  if (deduction.status !== 'PROPOSED') {
-    throw new ApiError(400, 'Only proposed deductions can be disputed');
+  await assertTenantAccess(tenancy);
+
+  if (!tenantCanReviewDeduction(deduction)) {
+    throw new ApiError(400, 'Only submitted proposed deductions can be disputed');
   }
 
   if (payload.reason === 'OTHER' && !payload.description?.trim()) {
@@ -79,10 +104,11 @@ export async function disputeDeduction(user, deductionId, payload) {
     evidenceUrl = `/uploads/disputes/${filename}`;
   }
 
+  if (!deduction.originalAmount) deduction.originalAmount = deduction.amount;
+
   deduction.status = 'DISPUTED';
   deduction.reviewedBy = user.id;
   deduction.reviewedAt = new Date();
-  if (!deduction.originalAmount) deduction.originalAmount = deduction.amount;
   await deduction.save();
 
   await Dispute.findOneAndUpdate(
@@ -95,7 +121,7 @@ export async function disputeDeduction(user, deductionId, payload) {
       description: payload.description || '',
       evidenceUrl,
       status: 'OPEN',
-      originalAmount: deduction.amount,
+      originalAmount: deduction.originalAmount ?? deduction.amount,
     },
     { upsert: true, new: true },
   );
@@ -116,71 +142,99 @@ export async function resolveDispute(user, disputeId, payload) {
     throw new ApiError(403, 'Only owners can resolve disputes');
   }
 
-  const dispute = await Dispute.findById(disputeId);
-  if (!dispute) throw new ApiError(404, 'Dispute not found');
+  const session = await mongoose.startSession();
+  try {
+    let result;
 
-  const tenancy = await Tenancy.findOne({ _id: dispute.tenancyId, ownerId: user.id });
-  if (!tenancy) throw new ApiError(403, 'You do not have permission');
+    await session.withTransaction(async () => {
+      const dispute = await Dispute.findById(disputeId).session(session);
+      if (!dispute) throw new ApiError(404, 'Dispute not found');
 
-  const deduction = await Deduction.findById(dispute.deductionId);
-  if (!deduction) throw new ApiError(404, 'Deduction not found');
+      const tenancy = await Tenancy.findOne({ _id: dispute.tenancyId, ownerId: user.id }).session(
+        session,
+      );
+      if (!tenancy) throw new ApiError(403, 'You do not have permission');
 
-  if (dispute.status === 'RESOLVED') {
-    throw new ApiError(400, 'Dispute has already been resolved');
-  }
+      const deduction = await Deduction.findById(dispute.deductionId).session(session);
+      if (!deduction) throw new ApiError(404, 'Deduction not found');
 
-  if (!deduction.originalAmount) deduction.originalAmount = deduction.amount;
+      if (dispute.status === 'RESOLVED') {
+        throw new ApiError(400, 'Dispute has already been resolved');
+      }
 
-  let resolvedAmount = deduction.amount;
-  if (payload.resolutionType === 'CANCEL') {
-    resolvedAmount = 0;
-    deduction.amount = 0;
-    deduction.status = 'RESOLVED';
-  } else if (payload.resolutionType === 'MODIFY') {
-    if (payload.resolvedAmount < 0 || Number.isNaN(payload.resolvedAmount)) {
-      throw new ApiError(400, 'Resolved amount must be a valid non-negative number');
-    }
-    resolvedAmount = payload.resolvedAmount;
-    deduction.amount = payload.resolvedAmount;
-    deduction.status = 'RESOLVED';
-  } else if (payload.resolutionType === 'MAINTAIN') {
-    resolvedAmount = deduction.amount;
-    deduction.status = 'RESOLVED';
-  } else {
-    throw new ApiError(400, 'Invalid resolution type');
-  }
+      if (!deduction.originalAmount) deduction.originalAmount = deduction.amount;
 
-  deduction.resolvedAmount = resolvedAmount;
-  deduction.resolutionType = payload.resolutionType;
-  deduction.resolutionNotes = payload.resolutionNotes || '';
-  deduction.resolvedBy = user.id;
-  deduction.resolvedAt = new Date();
-  await deduction.save();
+      let resolvedAmount = deduction.amount;
+      const now = new Date();
 
-  dispute.status = 'RESOLVED';
-  dispute.resolutionType = payload.resolutionType;
-  dispute.resolvedAmount = resolvedAmount;
-  dispute.resolutionNotes = payload.resolutionNotes || '';
-  dispute.ownerResponse = payload.resolutionNotes || '';
-  dispute.resolvedBy = user.id;
-  dispute.resolvedAt = new Date();
-  await dispute.save();
+      if (payload.resolutionType === 'CANCEL') {
+        resolvedAmount = 0;
+        deduction.amount = 0;
+        deduction.status = 'CANCELLED';
+      } else if (payload.resolutionType === 'MODIFY') {
+        if (
+          typeof payload.resolvedAmount !== 'number' ||
+          Number.isNaN(payload.resolvedAmount) ||
+          !Number.isFinite(payload.resolvedAmount) ||
+          payload.resolvedAmount < 0
+        ) {
+          throw new ApiError(400, 'Resolved amount must be a valid non-negative number');
+        }
+        resolvedAmount = payload.resolvedAmount;
+        deduction.amount = payload.resolvedAmount;
+        deduction.status = 'PROPOSED';
+        deduction.reviewedBy = null;
+        deduction.reviewedAt = null;
+        deduction.submittedForReviewAt = now;
+      } else if (payload.resolutionType === 'MAINTAIN') {
+        resolvedAmount = deduction.originalAmount ?? deduction.amount;
+        deduction.amount = resolvedAmount;
+        deduction.status = 'PROPOSED';
+        deduction.reviewedBy = null;
+        deduction.reviewedAt = null;
+        deduction.submittedForReviewAt = now;
+      } else {
+        throw new ApiError(400, 'Invalid resolution type');
+      }
 
-  if (tenancy.tenantUserId) {
-    await createNotification({
-      userId: tenancy.tenantUserId,
-      tenancyId: tenancy._id,
-      type: 'DISPUTE_RESOLVED',
-      title: 'Dispute resolved',
-      message: `Owner resolved dispute for ${deduction.title}.`,
+      deduction.resolvedAmount = resolvedAmount;
+      deduction.resolutionType = payload.resolutionType;
+      deduction.resolutionNotes = payload.resolutionNotes || '';
+      deduction.resolvedBy = user.id;
+      deduction.resolvedAt = now;
+      await deduction.save({ session });
+
+      dispute.status = 'RESOLVED';
+      dispute.resolutionType = payload.resolutionType;
+      dispute.resolvedAmount = resolvedAmount;
+      dispute.resolutionNotes = payload.resolutionNotes || '';
+      dispute.ownerResponse = payload.resolutionNotes || '';
+      dispute.resolvedBy = user.id;
+      dispute.resolvedAt = now;
+      await dispute.save({ session });
+
+      if (tenancy.tenantUserId) {
+        await createNotification({
+          userId: tenancy.tenantUserId,
+          tenancyId: tenancy._id,
+          type: 'DISPUTE_RESOLVED',
+          title: 'Dispute resolved',
+          message: `Owner resolved dispute for ${deduction.title}. Please review the revised deduction.`,
+        });
+      }
+
+      result = tenancy._id.toString();
     });
-  }
 
-  return getSettlement(user, tenancy._id.toString());
+    return getSettlement(user, result);
+  } finally {
+    session.endSession();
+  }
 }
 
 export async function getDispute(user, disputeId) {
   const dispute = await Dispute.findById(disputeId);
   if (!dispute) throw new ApiError(404, 'Dispute not found');
+  await getTenancyForUser(user, dispute.tenancyId.toString());
   return dispute.toJSON();
 }

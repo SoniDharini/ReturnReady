@@ -9,6 +9,7 @@ import {
   Settings,
   Home,
   Receipt,
+  Wrench,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/context/AuthContext'
@@ -30,12 +31,14 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           { to: paths.dashboard, label: 'Dashboard', icon: LayoutDashboard },
           { to: paths.properties, label: 'Properties', icon: Building2 },
           { to: paths.tenancies, label: 'Tenancies', icon: KeyRound },
+          { to: paths.propertyChanges, label: 'Property Changes', icon: Wrench },
           { to: paths.inspections, label: 'Inspections', icon: ClipboardCheck },
           { to: paths.reports, label: 'Reports', icon: FileText },
         ]
       : [
           { to: paths.dashboard, label: 'Dashboard', icon: LayoutDashboard },
           { to: paths.rental, label: 'My Rental', icon: Home },
+          { to: paths.propertyChanges, label: 'Property Changes', icon: Wrench },
           { to: paths.inspections, label: 'Inspections', icon: ClipboardCheck },
           { to: paths.settlement(), label: 'Settlement', icon: Receipt },
           { to: paths.reports, label: 'Reports', icon: FileText },

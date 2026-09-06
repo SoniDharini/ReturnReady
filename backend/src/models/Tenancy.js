@@ -75,6 +75,20 @@ const tenancySchema = new mongoose.Schema(
       ],
       default: 'UPCOMING',
     },
+    conditionsAccepted: { type: Boolean, default: false },
+    conditionsAcceptedAt: { type: Date, default: null },
+    conditionsAcceptedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    conditionVersion: { type: Number, default: 0 },
+    acceptedConditionIds: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'TenancyCondition',
+      },
+    ],
     dateHistory: [
       {
         field: { type: String, required: true },
@@ -87,6 +101,19 @@ const tenancySchema = new mongoose.Schema(
     ],
   },
   { timestamps: true },
+);
+
+tenancySchema.index(
+  { propertyId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      status: { $in: ['Invitation Sent', 'Active', 'Settlement Pending'] },
+      inviteStatus: { $in: ['Pending', 'Accepted'] },
+      stage: { $ne: 'complete' },
+    },
+    name: 'unique_active_tenancy_per_property',
+  },
 );
 
 tenancySchema.statics.createInviteToken = function createInviteToken() {
