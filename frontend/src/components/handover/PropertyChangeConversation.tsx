@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
 import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
-import { changeStatusLabel, isChangeAuthorized } from '@/lib/handoverUi'
+import { changeStatusLabel, isAwaitingTenantAcceptance, isChangeAuthorized } from '@/lib/handoverUi'
 import { formatDisplayDate } from '@/lib/tenancyContext'
 import { getErrorMessage } from '@/services/api'
 import {
@@ -162,6 +162,10 @@ export function PropertyChangeConversation({
         description: summary.trim(),
         roomId,
         changeType: 'OTHER',
+        tenantCommitments: [
+          summary.trim() ||
+            'I agree to restore the property to its original condition during move-out if required by the Owner.',
+        ],
       })
       setRequestOpen(false)
       await onRefresh()
@@ -393,8 +397,11 @@ export function PropertyChangeConversation({
             label="Owner Conditions (optional)"
             value={ownerConditions}
             onChange={(e) => setOwnerConditions(e.target.value)}
-            placeholder="Tenant must remove the AC and repair drilling holes before Move-Out."
+            placeholder="Leave blank to approve without conditions. Or add conditions, one per line."
           />
+          <p className="text-xs text-ink-muted">
+            Empty conditions = approve immediately. Adding conditions waits for Tenant acceptance.
+          </p>
           <Textarea
             label="Owner Notes"
             value={ownerNotes}
@@ -652,12 +659,12 @@ function EventCard({
             </Button>
           </>
         ) : null}
-        {!isOwner && request.status === 'APPROVED_PENDING_TENANT_ACCEPTANCE' ? (
+        {!isOwner && isAwaitingTenantAcceptance(request.status) ? (
           <Button size="sm" onClick={() => onAccept?.(request)}>
             Accept Conditions
           </Button>
         ) : null}
-        {!isOwner && request.status === 'APPROVED' ? (
+        {!isOwner && (request.status === 'AUTHORIZED' || request.status === 'APPROVED') ? (
           <Button size="sm" variant="secondary" onClick={() => onComplete?.(request)}>
             Mark Change Completed
           </Button>

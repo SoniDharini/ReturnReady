@@ -61,12 +61,12 @@ export function InvitationPage() {
     return (
       <InviteShell>
         <h1 className="text-2xl font-bold text-ink">
-          {expired ? 'This invitation has expired' : 'Invitation Not Available'}
+          {expired ? 'Invitation Expired' : 'Invalid Invitation'}
         </h1>
         <p className="mt-2 text-sm text-ink-secondary">
           {expired
-            ? 'Ask the property owner to send a new invitation.'
-            : 'This invitation may have already been accepted, cancelled or expired.'}
+            ? 'This invitation has expired. Ask the property owner to send a new invitation.'
+            : 'This invitation link is invalid or no longer available.'}
         </p>
         <Link to="/" className="mt-6 inline-block">
           <Button>Back to ReturnReady</Button>

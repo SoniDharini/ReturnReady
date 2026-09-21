@@ -114,6 +114,25 @@ export async function approveChangeRequest(req, res, next) {
       req.params.requestId,
       req.body,
     );
+    return res.status(200).json({
+      success: true,
+      message: request.status === 'AUTHORIZED'
+        ? 'Property change approved'
+        : 'Conditions sent to Tenant',
+      data: { request },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function sendOwnerConditions(req, res, next) {
+  try {
+    const request = await changeService.sendOwnerConditions(
+      req.user,
+      req.params.requestId,
+      req.body,
+    );
     return res.status(200).json({ success: true, data: { request } });
   } catch (error) {
     return next(error);
@@ -158,6 +177,28 @@ export async function cancelChangeRequest(req, res, next) {
 export async function acceptOwnerConditions(req, res, next) {
   try {
     const request = await changeService.acceptOwnerConditions(req.user, req.params.requestId);
+    return res.status(200).json({ success: true, data: { request } });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function declineOwnerConditions(req, res, next) {
+  try {
+    const request = await changeService.declineOwnerConditions(
+      req.user,
+      req.params.requestId,
+      req.body,
+    );
+    return res.status(200).json({ success: true, data: { request } });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function finalApproveChangeRequest(req, res, next) {
+  try {
+    const request = await changeService.finalApproveChangeRequest(req.user, req.params.requestId);
     return res.status(200).json({ success: true, data: { request } });
   } catch (error) {
     return next(error);

@@ -96,6 +96,8 @@ const tenancySchema = new mongoose.Schema(
         newValue: { type: String, default: '' },
         reason: { type: String, default: '' },
         changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        requestedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+        approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
         changedAt: { type: Date, default: Date.now },
       },
     ],

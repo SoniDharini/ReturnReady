@@ -3,6 +3,7 @@ import type {
   ChangeRequestType,
   ComplianceStatus,
   ConditionCategory,
+  PropertyChangeCommitment,
   PropertyChangeRequest,
 } from '@/types'
 
@@ -82,13 +83,19 @@ export const COMPLIANCE_OPTIONS: Array<{ value: ComplianceStatus; label: string 
 export function changeStatusLabel(status: ChangeRequestStatus) {
   switch (status) {
     case 'PENDING':
-      return 'Awaiting Owner Approval'
+      return 'Awaiting Owner Review'
+    case 'AWAITING_TENANT_ACCEPTANCE':
     case 'APPROVED_PENDING_TENANT_ACCEPTANCE':
       return 'Waiting for Tenant Acceptance'
+    case 'AWAITING_OWNER_FINAL_APPROVAL':
+      return 'Waiting for Owner Final Approval'
+    case 'AUTHORIZED':
     case 'APPROVED':
       return 'Approved ✓'
     case 'REJECTED':
-      return 'Not Approved'
+      return 'Rejected'
+    case 'CONDITIONS_DECLINED':
+      return 'Conditions Declined'
     case 'COMPLETED':
       return 'Completed'
     case 'CANCELLED':
@@ -107,7 +114,34 @@ export function categoryLabel(category?: ConditionCategory | string) {
 }
 
 export function isChangeAuthorized(request?: Pick<PropertyChangeRequest, 'status'> | null) {
-  return request?.status === 'APPROVED' || request?.status === 'COMPLETED'
+  return (
+    request?.status === 'AUTHORIZED' ||
+    request?.status === 'APPROVED' ||
+    request?.status === 'COMPLETED'
+  )
+}
+
+export function isAwaitingTenantAcceptance(status?: ChangeRequestStatus) {
+  return (
+    status === 'AWAITING_TENANT_ACCEPTANCE' || status === 'APPROVED_PENDING_TENANT_ACCEPTANCE'
+  )
+}
+
+export function ownerConditionList(request?: PropertyChangeRequest | null): PropertyChangeCommitment[] {
+  if (!request) return []
+  if (request.ownerConditionItems?.length) return request.ownerConditionItems
+  if (request.ownerConditions?.trim()) {
+    return request.ownerConditions
+      .split(/\n+/)
+      .map((text) => text.trim())
+      .filter(Boolean)
+      .map((text) => ({ text }))
+  }
+  return []
+}
+
+export function tenantCommitmentList(request?: PropertyChangeRequest | null): PropertyChangeCommitment[] {
+  return request?.tenantCommitments || []
 }
 
 export function requestHeadline(request: PropertyChangeRequest) {
@@ -124,4 +158,41 @@ export function changesForRoom(
       (roomId && request.roomId && request.roomId === roomId) ||
       (roomName && request.roomName && request.roomName === roomName),
   )
+}
+
+export function actionRequiredForRole(
+  request: PropertyChangeRequest,
+  role: 'OWNER' | 'TENANT',
+) {
+  if (role === 'OWNER') {
+    return request.status === 'PENDING' || request.status === 'AWAITING_OWNER_FINAL_APPROVAL'
+  }
+  return isAwaitingTenantAcceptance(request.status)
+}
+
+export function timelineLabel(action: string) {
+  switch (action) {
+    case 'REQUESTED':
+      return 'Tenant submitted request'
+    case 'CONDITIONS_PROPOSED':
+    case 'CONDITIONALLY_APPROVED':
+      return 'Owner approved with conditions'
+    case 'APPROVED_WITHOUT_CONDITIONS':
+      return 'Owner approved without conditions'
+    case 'CONDITIONS_ACCEPTED':
+      return 'Tenant accepted all conditions'
+    case 'CONDITIONS_DECLINED':
+      return 'Tenant declined owner conditions'
+    case 'FINAL_APPROVED':
+    case 'APPROVED':
+      return 'Property change officially approved'
+    case 'REJECTED':
+      return 'Owner rejected request'
+    case 'COMPLETED':
+      return 'Tenant marked change completed'
+    case 'CANCELLED':
+      return 'Tenant cancelled request'
+    default:
+      return action.replaceAll('_', ' ')
+  }
 }

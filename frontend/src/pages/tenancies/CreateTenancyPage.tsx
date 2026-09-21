@@ -7,10 +7,11 @@ import { Input } from '@/components/ui/Input'
 import { listProperties } from '@/services/property.service'
 import { createTenancy } from '@/services/tenancy.service'
 import { getErrorMessage } from '@/services/api'
-import type { Property } from '@/types'
+import type { Property, Tenancy } from '@/types'
 import { cn, formatCurrency } from '@/lib/utils'
 import { useAppPaths } from '@/hooks/useAppPaths'
 import { getAvailabilityLabel, isPropertyAvailable } from '@/lib/propertyAvailability'
+import { InvitationLinkCard } from '@/components/tenancy/InvitationLinkCard'
 
 const steps = ['Tenant', 'Rental Details', 'Review']
 
@@ -24,6 +25,7 @@ export function CreateTenancyPage() {
   const [propertyId, setPropertyId] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [createdTenancy, setCreatedTenancy] = useState<Tenancy | null>(null)
   const [form, setForm] = useState({
     tenantName: '',
     tenantEmail: '',
@@ -73,7 +75,7 @@ export function CreateTenancyPage() {
         rent: Number(form.rent),
         deposit: Number(form.deposit),
       })
-      navigate(paths.tenancy(tenancy.id))
+      setCreatedTenancy(tenancy)
     } catch (err) {
       setError(getErrorMessage(err, 'Unable to send invitation'))
     } finally {
@@ -88,26 +90,64 @@ export function CreateTenancyPage() {
         description="Create a tenancy and send a secure invitation. The invitee will join as a Tenant."
       />
 
-      <ol className="mb-6 flex flex-wrap gap-2">
-        {steps.map((label, index) => (
-          <li
-            key={label}
-            className={cn(
-              'rounded-full px-3 py-1.5 text-xs font-semibold',
-              index === step
-                ? 'bg-brand-600 text-white'
-                : index < step
-                  ? 'bg-brand-50 text-brand-700'
-                  : 'bg-surface-subtle text-ink-muted',
-            )}
-          >
-            {index + 1} {label}
-          </li>
-        ))}
-      </ol>
+      {createdTenancy ? null : (
+        <ol className="mb-6 flex flex-wrap gap-2">
+          {steps.map((label, index) => (
+            <li
+              key={label}
+              className={cn(
+                'rounded-full px-3 py-1.5 text-xs font-semibold',
+                index === step
+                  ? 'bg-brand-600 text-white'
+                  : index < step
+                    ? 'bg-brand-50 text-brand-700'
+                    : 'bg-surface-subtle text-ink-muted',
+              )}
+            >
+              {index + 1} {label}
+            </li>
+          ))}
+        </ol>
+      )}
 
       <Card>
-        {step === 0 ? (
+        {createdTenancy ? (
+          <div className="space-y-5">
+            <div>
+              <h2 className="text-lg font-bold text-ink">Tenant Invitation Created</h2>
+              <p className="mt-1 text-sm text-ink-secondary">
+                Share this link with {createdTenancy.tenantName} so they can join the tenancy.
+              </p>
+            </div>
+            <dl className="grid gap-3 text-sm sm:grid-cols-2">
+              <div>
+                <dt className="text-ink-muted">Tenant</dt>
+                <dd className="mt-1 font-semibold text-ink">{createdTenancy.tenantName}</dd>
+              </div>
+              <div>
+                <dt className="text-ink-muted">Email</dt>
+                <dd className="mt-1 font-semibold text-ink">{createdTenancy.tenantEmail}</dd>
+              </div>
+              <div>
+                <dt className="text-ink-muted">Status</dt>
+                <dd className="mt-1 font-semibold text-ink">Pending</dd>
+              </div>
+            </dl>
+            <InvitationLinkCard
+              invitationUrl={
+                createdTenancy.invitationUrl ||
+                (createdTenancy.inviteToken
+                  ? `${window.location.origin}/invite/${createdTenancy.inviteToken}`
+                  : null)
+              }
+            />
+            <div className="flex justify-end">
+              <Button onClick={() => navigate(paths.tenancy(createdTenancy.id))}>Done</Button>
+            </div>
+          </div>
+        ) : null}
+
+        {!createdTenancy && step === 0 ? (
           <div className="space-y-4">
             <h2 className="text-lg font-bold text-ink">Tenant Information</h2>
             <Input
@@ -132,7 +172,7 @@ export function CreateTenancyPage() {
           </div>
         ) : null}
 
-        {step === 1 ? (
+        {!createdTenancy && step === 1 ? (
           <div className="space-y-4">
             <h2 className="text-lg font-bold text-ink">Rental Information</h2>
             {properties.length === 0 ? (
@@ -223,7 +263,7 @@ export function CreateTenancyPage() {
           </div>
         ) : null}
 
-        {step === 2 ? (
+        {!createdTenancy && step === 2 ? (
           <div>
             <h2 className="text-lg font-bold text-ink">Review</h2>
             <p className="mt-1 text-sm text-ink-secondary">
@@ -254,6 +294,7 @@ export function CreateTenancyPage() {
 
         {error ? <p className="mt-4 text-sm text-danger">{error}</p> : null}
 
+        {!createdTenancy ? (
         <div className="mt-8 flex flex-wrap justify-between gap-2">
           <Button variant="tertiary" onClick={() => (step === 0 ? navigate(-1) : setStep((s) => s - 1))}>
             {step === 0 ? 'Cancel' : 'Back'}
@@ -270,10 +311,11 @@ export function CreateTenancyPage() {
               onClick={() => void sendInvite()}
               disabled={loading || !propertyId || !selected || !isPropertyAvailable(selected)}
             >
-              {loading ? 'Sending...' : 'Send Invitation'}
+              {loading ? 'Creating Invitation...' : 'Send Invitation'}
             </Button>
           )}
         </div>
+        ) : null}
       </Card>
     </div>
   )

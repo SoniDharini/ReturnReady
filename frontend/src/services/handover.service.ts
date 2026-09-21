@@ -3,7 +3,7 @@ import type {
   ChangeRequestType,
   ComplianceStatus,
   ConditionCategory,
-  PropertyChangeMessage,
+  PropertyChangeCommitment,
   PropertyChangeRequest,
   TenancyCondition,
 } from '@/types'
@@ -116,6 +116,8 @@ export async function createChangeRequest(
     roomId?: string
     roomName?: string
     evidenceDataUrl?: string
+    evidenceDataUrls?: string[]
+    tenantCommitments: Array<string | PropertyChangeCommitment>
   },
 ) {
   const { data } = await api.post<RequestResponse>(
@@ -125,15 +127,44 @@ export async function createChangeRequest(
   return data.data.request
 }
 
+export async function sendOwnerConditions(
+  requestId: string,
+  payload: {
+    ownerNotes?: string
+    ownerConditions?: string
+    ownerConditionItems?: Array<string | PropertyChangeCommitment>
+    conditions?: Array<string | PropertyChangeCommitment>
+  },
+) {
+  const { data } = await api.post<RequestResponse>(
+    `/change-requests/${requestId}/send-conditions`,
+    payload,
+  )
+  return data.data.request
+}
+
+/** Approve without conditions, or with conditions when provided */
 export async function approveChangeRequest(
   requestId: string,
-  payload: { ownerNotes?: string; ownerConditions?: string },
+  payload: {
+    ownerNotes?: string
+    ownerConditions?: string
+    ownerConditionItems?: Array<string | PropertyChangeCommitment>
+    conditions?: Array<string | PropertyChangeCommitment>
+  } = {},
 ) {
   const { data } = await api.post<RequestResponse>(
     `/change-requests/${requestId}/approve`,
     payload,
   )
   return data.data.request
+}
+
+export async function approveWithoutConditions(
+  requestId: string,
+  payload: { ownerNotes?: string } = {},
+) {
+  return approveChangeRequest(requestId, payload)
 }
 
 export async function rejectChangeRequest(
@@ -146,7 +177,7 @@ export async function rejectChangeRequest(
 
 export async function completeChangeRequest(
   requestId: string,
-  payload?: { note?: string; evidenceDataUrl?: string },
+  payload?: { note?: string; completionNotes?: string; evidenceDataUrl?: string },
 ) {
   const { data } = await api.post<RequestResponse>(
     `/change-requests/${requestId}/complete`,
@@ -171,44 +202,30 @@ export async function reviewChangeCompliance(
   return data.data.request
 }
 
-export const getChangeRequests = listChangeRequests
-export const getChangeRequestById = getChangeRequest
-
-type ChatResponse = {
-  success: boolean
-  data: {
-    tenancy: {
-      id: string
-      propertyName: string
-      tenantName: string
-      ownerName: string
-      stage: string
-    }
-    rooms: Array<{ id: string; name: string }>
-    messages: PropertyChangeMessage[]
-    requests: PropertyChangeRequest[]
-  }
-}
-
-export async function getPropertyChangeChat(tenancyId: string) {
-  const { data } = await api.get<ChatResponse>(`/tenancies/${tenancyId}/property-change-chat`)
-  return data.data
-}
-
-export async function sendPropertyChangeMessage(
-  tenancyId: string,
-  payload: { text?: string; evidenceDataUrl?: string },
-) {
-  const { data } = await api.post<{ success: boolean; data: { message: PropertyChangeMessage } }>(
-    `/tenancies/${tenancyId}/property-change-chat/messages`,
-    payload,
-  )
-  return data.data.message
-}
-
 export async function acceptOwnerConditions(requestId: string) {
   const { data } = await api.post<RequestResponse>(
     `/change-requests/${requestId}/accept-conditions`,
   )
   return data.data.request
 }
+
+export async function declineOwnerConditions(
+  requestId: string,
+  payload?: { reason?: string; note?: string },
+) {
+  const { data } = await api.post<RequestResponse>(
+    `/change-requests/${requestId}/decline-conditions`,
+    payload || {},
+  )
+  return data.data.request
+}
+
+export async function finalApproveChangeRequest(requestId: string) {
+  const { data } = await api.post<RequestResponse>(
+    `/change-requests/${requestId}/final-approve`,
+  )
+  return data.data.request
+}
+
+export const getChangeRequests = listChangeRequests
+export const getChangeRequestById = getChangeRequest

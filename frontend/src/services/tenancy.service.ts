@@ -1,8 +1,16 @@
 import { api } from './api'
-import type { Tenancy } from '@/types'
+import type { Tenancy, TenancyExtensionRequest } from '@/types'
 
 type ListResponse = { success: boolean; data: { tenancies: Tenancy[] } }
 type OneResponse = { success: boolean; data: { tenancy: Tenancy } }
+type ExtensionResponse = {
+  success: boolean
+  data: { request: TenancyExtensionRequest; tenancy: Tenancy }
+}
+type ExtensionListResponse = {
+  success: boolean
+  data: { requests: TenancyExtensionRequest[]; tenancy: Tenancy }
+}
 
 export async function listTenancies() {
   const { data } = await api.get<ListResponse>('/tenancies')
@@ -61,4 +69,54 @@ export async function startMoveOut(
 ) {
   const { data } = await api.post<OneResponse>(`/tenancies/${id}/start-move-out`, payload)
   return data.data.tenancy
+}
+
+export async function getMoveOutContext(id: string) {
+  const { data } = await api.get<{ success: boolean; data: Record<string, unknown> }>(
+    `/tenancies/${id}/move-out-context`,
+  )
+  return data.data
+}
+
+export async function createExtensionRequest(
+  tenancyId: string,
+  payload: { requestedMoveOutDate: string; reason: string },
+) {
+  const { data } = await api.post<ExtensionResponse>(
+    `/tenancies/${tenancyId}/extension-requests`,
+    payload,
+  )
+  return data.data
+}
+
+export async function listExtensionRequests(tenancyId: string) {
+  const { data } = await api.get<ExtensionListResponse>(
+    `/tenancies/${tenancyId}/extension-requests`,
+  )
+  return data.data
+}
+
+export async function approveExtensionRequest(requestId: string) {
+  const { data } = await api.post<ExtensionResponse>(
+    `/tenancies/extension-requests/${requestId}/approve`,
+  )
+  return data.data
+}
+
+export async function rejectExtensionRequest(
+  requestId: string,
+  payload: { ownerResponse?: string; reason?: string },
+) {
+  const { data } = await api.post<ExtensionResponse>(
+    `/tenancies/extension-requests/${requestId}/reject`,
+    payload,
+  )
+  return data.data
+}
+
+export async function cancelExtensionRequest(requestId: string) {
+  const { data } = await api.post<ExtensionResponse>(
+    `/tenancies/extension-requests/${requestId}/cancel`,
+  )
+  return data.data
 }

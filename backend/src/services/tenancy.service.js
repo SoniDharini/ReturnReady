@@ -6,6 +6,7 @@ import { ApiError } from '../utils/ApiError.js';
 import {
   assertPropertyAvailableForTenancy,
   getActiveTenancyForProperty,
+  withOptionalTransaction,
 } from './propertyAvailability.service.js';
 import {
   generateAccessToken,
@@ -13,11 +14,23 @@ import {
 } from '../utils/generateToken.js';
 import { TenancyCondition } from '../models/TenancyCondition.js';
 import { acceptConditionsForActivation } from './tenancyCondition.service.js';
+import { createNotification } from './notification.service.js';
+import {
+  attachAccessTimeline,
+  attachTenancyTimeline,
+  attachTenancyTimelines,
+  formatCalendarDate,
+} from './tenancyDate.service.js';
+import { assertInvitationUrlConfig, attachInvitationFields } from '../utils/invitationUrl.js';
 import bcrypt from 'bcryptjs';
-import mongoose from 'mongoose';
 
-function formatTenancy(doc) {
-  return doc.toJSON();
+async function formatTenancy(doc) {
+  return attachInvitationFields(await attachTenancyTimeline(doc), doc);
+}
+
+async function saveWithOptionalSession(doc, session) {
+  if (session) return doc.save({ session });
+  return doc.save();
 }
 
 function parseDate(value) {
@@ -63,34 +76,36 @@ async function hasLockedMoveIn(tenancyId) {
 
 export async function listTenanciesForOwner(ownerId) {
   const tenancies = await Tenancy.find({ ownerId }).sort({ createdAt: -1 });
-  return tenancies.map(formatTenancy);
+  const formatted = await attachTenancyTimelines(tenancies);
+  return formatted.map((json, index) => attachInvitationFields(json, tenancies[index]));
 }
 
 export async function getTenancyForOwner(ownerId, tenancyId) {
   const tenancy = await Tenancy.findOne({ _id: tenancyId, ownerId });
   if (!tenancy) throw new ApiError(404, 'Tenancy not found');
-  return formatTenancy(tenancy);
+  return await formatTenancy(tenancy);
 }
 
 export async function createTenancyInvite(owner, payload) {
-  const session = await mongoose.startSession();
-
+  assertInvitationUrlConfig();
   try {
-    let createdTenancy;
-
-    await session.withTransaction(async () => {
-      const property = await Property.findOne({
+    const createdTenancy = await withOptionalTransaction(async (session) => {
+      let propertyQuery = Property.findOne({
         _id: payload.propertyId,
         ownerId: owner.id,
-      }).session(session);
+      });
+      if (session) propertyQuery = propertyQuery.session(session);
+      const property = await propertyQuery;
       if (!property) throw new ApiError(404, 'Property not found');
 
       await assertPropertyAvailableForTenancy(property._id, session);
 
-      const existingOwnerAccount = await User.findOne({
+      let ownerAccountQuery = User.findOne({
         email: payload.tenantEmail,
         role: 'OWNER',
-      }).session(session);
+      });
+      if (session) ownerAccountQuery = ownerAccountQuery.session(session);
+      const existingOwnerAccount = await ownerAccountQuery;
       if (existingOwnerAccount) {
         throw new ApiError(
           409,
@@ -99,49 +114,42 @@ export async function createTenancyInvite(owner, payload) {
       }
 
       const inviteToken = Tenancy.createInviteToken();
-
-      const [tenancy] = await Tenancy.create(
-        [
-          {
-            ownerId: owner.id,
-            propertyId: property._id,
-            propertyName: property.name,
-            tenantName: payload.tenantName,
-            tenantEmail: payload.tenantEmail,
-            tenantPhone: payload.tenantPhone || '',
-            ownerName: owner.name,
-            ownerEmail: owner.email,
-            moveIn: payload.moveIn,
-            moveOut: payload.moveOut,
-            rent: payload.rent,
-            deposit: payload.deposit,
-            inviteToken,
-            inviteStatus: 'Pending',
-            status: 'Invitation Sent',
-            stage: 'invitation',
-          },
-        ],
-        { session },
-      );
+      const tenancy = new Tenancy({
+        ownerId: owner.id,
+        propertyId: property._id,
+        propertyName: property.name,
+        tenantName: payload.tenantName,
+        tenantEmail: payload.tenantEmail,
+        tenantPhone: payload.tenantPhone || '',
+        ownerName: owner.name,
+        ownerEmail: owner.email,
+        moveIn: payload.moveIn,
+        moveOut: payload.moveOut,
+        rent: payload.rent,
+        deposit: payload.deposit,
+        inviteToken,
+        inviteStatus: 'Pending',
+        status: 'Invitation Sent',
+        stage: 'invitation',
+      });
+      await saveWithOptionalSession(tenancy, session);
 
       property.activeTenancy = payload.tenantName;
       property.status = 'Active';
-      await property.save({ session });
+      await saveWithOptionalSession(property, session);
 
-      createdTenancy = tenancy;
+      return tenancy;
     });
 
-    return formatTenancy(createdTenancy);
+    return await formatTenancy(createdTenancy);
   } catch (error) {
     if (error?.code === 11000) {
       throw new ApiError(
         409,
-        'This property already has an active tenant. Complete the current tenancy before assigning another tenant.',
+        'This property already has an active or reserved tenancy. Complete or cancel the current tenancy before assigning another Tenant.',
       );
     }
     throw error;
-  } finally {
-    session.endSession();
   }
 }
 
@@ -164,10 +172,11 @@ export async function cancelInvitation(ownerId, tenancyId) {
     }
   }
 
-  return formatTenancy(tenancy);
+  return await formatTenancy(tenancy);
 }
 
 export async function resendInvitation(ownerId, tenancyId) {
+  assertInvitationUrlConfig();
   const tenancy = await Tenancy.findOne({ _id: tenancyId, ownerId });
   if (!tenancy) throw new ApiError(404, 'Tenancy not found');
   if (tenancy.inviteStatus === 'Accepted') {
@@ -179,7 +188,7 @@ export async function resendInvitation(ownerId, tenancyId) {
   tenancy.inviteExpiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
   tenancy.status = 'Invitation Sent';
   await tenancy.save();
-  return formatTenancy(tenancy);
+  return await formatTenancy(tenancy);
 }
 
 export async function getInvitationByToken(token) {
@@ -282,20 +291,7 @@ export async function activateTenantFromInvite({ token, password, conditionsAcce
 
   const safeUser = {
     ...user.toSafeObject(),
-    tenantAccess: {
-      status: 'ACTIVE',
-      tenancyId: tenancy._id.toString(),
-      inviteId: tenancy.inviteToken,
-      propertyName: tenancy.propertyName,
-      ownerName: tenancy.ownerName,
-      moveIn: tenancy.moveIn,
-      moveOut: tenancy.moveOut,
-      actualMoveOut: tenancy.actualMoveOut,
-      moveOutReason: tenancy.moveOutReason,
-      occupancyStatus: tenancy.occupancyStatus,
-      stage: tenancy.stage,
-      deposit: tenancy.deposit,
-    },
+    tenantAccess: await getTenantAccessForUser(user._id),
   };
 
   return { user: safeUser, accessToken, refreshToken };
@@ -309,38 +305,39 @@ export async function getTenantAccessForUser(userId) {
 
   if (!tenancy) return null;
 
-  if (tenancy.stage === 'complete' || tenancy.status === 'Completed') {
-  return {
-    status: 'CLOSED',
-    tenancyId: tenancy._id.toString(),
-    inviteId: tenancy.inviteToken,
-    propertyName: tenancy.propertyName,
-    ownerName: tenancy.ownerName,
-    moveIn: tenancy.moveIn,
-    moveOut: tenancy.moveOut,
-    actualMoveOut: tenancy.actualMoveOut,
-    moveOutReason: tenancy.moveOutReason,
-    occupancyStatus: tenancy.occupancyStatus,
-    stage: tenancy.stage,
-    deposit: tenancy.deposit,
-  };
-  }
+  const base =
+    tenancy.stage === 'complete' || tenancy.status === 'Completed'
+      ? {
+          status: 'CLOSED',
+          tenancyId: tenancy._id.toString(),
+          inviteId: tenancy.inviteToken,
+          propertyName: tenancy.propertyName,
+          ownerName: tenancy.ownerName,
+          moveIn: tenancy.moveIn,
+          moveOut: tenancy.moveOut,
+          actualMoveOut: tenancy.actualMoveOut,
+          moveOutReason: tenancy.moveOutReason,
+          occupancyStatus: tenancy.occupancyStatus,
+          stage: tenancy.stage,
+          deposit: tenancy.deposit,
+        }
+      : {
+          status: 'ACTIVE',
+          tenancyId: tenancy._id.toString(),
+          inviteId: tenancy.inviteToken,
+          propertyName: tenancy.propertyName,
+          ownerName: tenancy.ownerName,
+          moveIn: tenancy.moveIn,
+          moveOut: tenancy.moveOut,
+          actualMoveOut: tenancy.actualMoveOut,
+          moveOutReason: tenancy.moveOutReason,
+          moveOutNotes: tenancy.moveOutNotes,
+          occupancyStatus: tenancy.occupancyStatus,
+          stage: tenancy.stage,
+          deposit: tenancy.deposit,
+        };
 
-  return {
-    status: 'ACTIVE',
-    tenancyId: tenancy._id.toString(),
-    inviteId: tenancy.inviteToken,
-    propertyName: tenancy.propertyName,
-    ownerName: tenancy.ownerName,
-    moveIn: tenancy.moveIn,
-    moveOut: tenancy.moveOut,
-    actualMoveOut: tenancy.actualMoveOut,
-    moveOutReason: tenancy.moveOutReason,
-    moveOutNotes: tenancy.moveOutNotes,
-    occupancyStatus: tenancy.occupancyStatus,
-    stage: tenancy.stage,
-    deposit: tenancy.deposit,
-  };
+  return attachAccessTimeline(tenancy, base);
 }
 
 export async function updateTenancyForOwner(ownerId, tenancyId, payload) {
@@ -402,7 +399,7 @@ export async function updateTenancyForOwner(ownerId, tenancyId, payload) {
   validateMoveDates(tenancy.moveIn, tenancy.moveOut, tenancy.actualMoveOut);
 
   await tenancy.save();
-  return formatTenancy(tenancy);
+  return await formatTenancy(tenancy);
 }
 
 export async function startMoveOutForOwner(ownerId, tenancyId, payload) {
@@ -422,6 +419,15 @@ export async function startMoveOutForOwner(ownerId, tenancyId, payload) {
     throw new ApiError(400, 'Move-in inspection must be locked before starting move-out');
   }
 
+  const completedMoveOut = await Inspection.findOne({
+    tenancyId: tenancy._id,
+    type: 'MOVE_OUT',
+    status: 'COMPLETED',
+  });
+  if (completedMoveOut) {
+    throw new ApiError(409, 'A completed Move-Out inspection already exists for this tenancy');
+  }
+
   validateMoveDates(tenancy.moveIn, tenancy.moveOut, payload.actualMoveOut);
 
   recordDateChange(
@@ -437,7 +443,19 @@ export async function startMoveOutForOwner(ownerId, tenancyId, payload) {
   tenancy.moveOutReason = payload.moveOutReason;
   tenancy.moveOutNotes = payload.moveOutNotes || '';
   tenancy.occupancyStatus = 'PREPARING_TO_MOVE_OUT';
+  tenancy.stage = 'move-out';
 
   await tenancy.save();
-  return formatTenancy(tenancy);
+
+  if (tenancy.tenantUserId) {
+    await createNotification({
+      userId: tenancy.tenantUserId,
+      tenancyId: tenancy._id,
+      type: 'MOVE_OUT_STARTED',
+      title: 'Move-Out Started',
+      message: `Move-Out has started for ${tenancy.propertyName}. Expected: ${formatCalendarDate(tenancy.moveOut)}. Actual: ${formatCalendarDate(tenancy.actualMoveOut)}.`,
+    });
+  }
+
+  return await formatTenancy(tenancy);
 }

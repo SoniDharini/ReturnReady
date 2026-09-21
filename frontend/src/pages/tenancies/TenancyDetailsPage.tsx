@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Copy, Mail, MoreHorizontal } from 'lucide-react'
+import { Mail, MoreHorizontal } from 'lucide-react'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -9,8 +9,10 @@ import { Input } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
 import { Textarea } from '@/components/ui/Textarea'
 import {
+  approveExtensionRequest,
   cancelInvitation,
   getTenancy,
+  rejectExtensionRequest,
   resendInvitation,
   startMoveOut,
   updateTenancy,
@@ -23,6 +25,9 @@ import { getErrorMessage } from '@/services/api'
 import type { Inspection, PropertyChangeRequest, Tenancy } from '@/types'
 import { ConditionManager } from '@/components/handover/ConditionManager'
 import { ChangeRequestCard } from '@/components/handover/ChangeRequestCard'
+import { TenancyDateCard } from '@/components/tenancy/TenancyDateCard'
+import { ExtensionReviewModal } from '@/components/tenancy/ExtensionReviewModal'
+import { InvitationLinkCard, InvitationStatusBadge } from '@/components/tenancy/InvitationLinkCard'
 import { getInspectionDisplayStatus } from '@/lib/inspectionStatus'
 import { formatCurrency } from '@/lib/utils'
 import { listChangeRequests } from '@/services/handover.service'
@@ -45,7 +50,7 @@ export function TenancyDetailsPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [cancelOpen, setCancelOpen] = useState(false)
-  const [copied, setCopied] = useState(false)
+  const [resending, setResending] = useState(false)
   const [inspections, setInspections] = useState<Inspection[]>([])
   const [menuOpen, setMenuOpen] = useState(false)
   const [moveOutOpen, setMoveOutOpen] = useState(false)
@@ -59,6 +64,9 @@ export function TenancyDetailsPage() {
   const [dateChangeReason, setDateChangeReason] = useState<string>(DATE_CHANGE_REASONS[0])
   const [occupancyStatus, setOccupancyStatus] = useState<string>('CURRENTLY_STAYING')
   const [changeRequests, setChangeRequests] = useState<PropertyChangeRequest[]>([])
+  const [extensionReviewOpen, setExtensionReviewOpen] = useState(false)
+  const [extensionError, setExtensionError] = useState('')
+  const [extensionSaving, setExtensionSaving] = useState(false)
 
   const load = async () => {
     setLoading(true)
@@ -85,9 +93,14 @@ export function TenancyDetailsPage() {
   }, [id])
 
   if (loading) return <p className="text-sm text-ink-secondary">Loading tenancy...</p>
-  if (error || !tenancy) return <p className="text-sm text-danger">{error || 'Not found'}</p>
+  if (!tenancy) return <p className="text-sm text-danger">{error || 'Not found'}</p>
 
-  const inviteLink = `${window.location.origin}/invite/${tenancy.inviteToken}`
+  const inviteExpired = Boolean(tenancy.invitationExpired) || tenancy.inviteStatus === 'Expired'
+  const inviteLink =
+    tenancy.invitationUrl ||
+    (tenancy.inviteStatus === 'Pending' && !inviteExpired && tenancy.inviteToken
+      ? `${window.location.origin}/invite/${tenancy.inviteToken}`
+      : null)
   const moveIn = inspections.find((i) => i.type === 'MOVE_IN')
   const moveOut = inspections.find((i) => i.type === 'MOVE_OUT')
   const action = getOwnerAction(tenancy, inspections, paths)
@@ -95,6 +108,38 @@ export function TenancyDetailsPage() {
     Boolean(moveIn && (moveIn.status === 'LOCKED' || (moveIn.ownerApproved && moveIn.tenantApproved))) &&
     !moveOut &&
     ['active', 'move-out'].includes(tenancy.stage)
+
+  const handleExtensionApprove = async () => {
+    if (!tenancy.pendingExtension) return
+    setExtensionSaving(true)
+    setExtensionError('')
+    try {
+      const data = await approveExtensionRequest(tenancy.pendingExtension.id)
+      setTenancy(data.tenancy)
+      setExtensionReviewOpen(false)
+    } catch (err) {
+      setExtensionError(getErrorMessage(err, 'Unable to approve extension'))
+    } finally {
+      setExtensionSaving(false)
+    }
+  }
+
+  const handleExtensionReject = async (reason: string) => {
+    if (!tenancy.pendingExtension) return
+    setExtensionSaving(true)
+    setExtensionError('')
+    try {
+      const data = await rejectExtensionRequest(tenancy.pendingExtension.id, {
+        ownerResponse: reason,
+      })
+      setTenancy(data.tenancy)
+      setExtensionReviewOpen(false)
+    } catch (err) {
+      setExtensionError(getErrorMessage(err, 'Unable to reject extension'))
+    } finally {
+      setExtensionSaving(false)
+    }
+  }
 
   const handleStartMoveOut = async () => {
     setSaving(true)
@@ -205,6 +250,36 @@ export function TenancyDetailsPage() {
         }
       />
 
+      <TenancyDateCard
+        role="OWNER"
+        tenantName={tenancy.tenantName}
+        moveIn={tenancy.moveIn}
+        expectedMoveOut={tenancy.moveOut}
+        actualMoveOut={tenancy.actualMoveOut}
+        timeline={tenancy.moveOutTimeline}
+        pendingExtension={tenancy.pendingExtension}
+        onReviewExtension={() => setExtensionReviewOpen(true)}
+        onStartMoveOut={
+          canStartMoveOut
+            ? () => {
+                setActualMoveOut(toInputDate(tenancy.moveOut))
+                setMoveOutOpen(true)
+              }
+            : moveOut && ['DRAFT', 'IN_PROGRESS'].includes(moveOut.status)
+              ? () => navigate(paths.inspectionWizard(moveOut.id))
+              : undefined
+        }
+        startMoveOutLabel={
+          moveOut && ['DRAFT', 'IN_PROGRESS'].includes(moveOut.status)
+            ? 'Continue Move-Out'
+            : 'Start Move-Out'
+        }
+        onUpdateDate={() => {
+          setExpectedMoveOut(toInputDate(tenancy.moveOut))
+          setEditMoveOutOpen(true)
+        }}
+      />
+
       <Card>
         <dl className="grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
           <div>
@@ -287,8 +362,8 @@ export function TenancyDetailsPage() {
         <Card>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-lg font-bold text-ink">Property Change Requests</h2>
-            <Button variant="secondary" onClick={() => navigate(paths.propertyChangeChat(tenancy.id))}>
-              Open conversation
+            <Button variant="secondary" onClick={() => navigate(paths.propertyChanges)}>
+              Open Property Changes
             </Button>
           </div>
           <ul className="mt-4 space-y-3">
@@ -304,38 +379,109 @@ export function TenancyDetailsPage() {
         </Card>
       ) : null}
 
-      {tenancy.inviteStatus === 'Pending' ? (
+      {tenancy.inviteStatus === 'Accepted' ? (
         <Card>
-          <h2 className="text-lg font-bold text-ink">Tenant Invitation</h2>
-          <p className="mt-2 text-sm text-ink-secondary">{tenancy.tenantEmail}</p>
+          <h2 className="text-lg font-bold text-ink">Invitation Accepted</h2>
+          <p className="mt-2 text-sm text-ink-secondary">
+            {tenancy.tenantName} has joined this tenancy.
+          </p>
+          {tenancy.updatedAt ? (
+            <p className="mt-3 text-sm text-ink-muted">
+              Accepted: {formatDisplayDate(tenancy.updatedAt)}
+            </p>
+          ) : null}
+        </Card>
+      ) : null}
+
+      {tenancy.inviteStatus === 'Cancelled' ? (
+        <Card>
+          <h2 className="text-lg font-bold text-ink">Manage Invitation</h2>
+          <p className="mt-2 text-sm text-ink-secondary">
+            This invitation was cancelled. Invite a tenant again from the Tenancies page if the
+            property is available.
+          </p>
+        </Card>
+      ) : null}
+
+      {tenancy.inviteStatus === 'Pending' || tenancy.inviteStatus === 'Expired' ? (
+        <Card>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-bold text-ink">Manage Invitation</h2>
+              <p className="mt-1 text-sm text-ink-secondary">{tenancy.tenantName}</p>
+            </div>
+            <InvitationStatusBadge status={tenancy.inviteStatus} expired={inviteExpired} />
+          </div>
+
+          <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+            <div>
+              <dt className="text-ink-muted">Email</dt>
+              <dd className="mt-1 font-semibold text-ink">{tenancy.tenantEmail}</dd>
+            </div>
+            <div>
+              <dt className="text-ink-muted">Property</dt>
+              <dd className="mt-1 font-semibold text-ink">{tenancy.propertyName}</dd>
+            </div>
+            <div>
+              <dt className="text-ink-muted">Created</dt>
+              <dd className="mt-1 font-semibold text-ink">
+                {formatDisplayDate(tenancy.inviteSentAt || tenancy.createdAt)}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-ink-muted">Expires</dt>
+              <dd className="mt-1 font-semibold text-ink">
+                {formatDisplayDate(tenancy.inviteExpiresAt)}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-ink-muted">Move-In</dt>
+              <dd className="mt-1 font-semibold text-ink">{formatDisplayDate(tenancy.moveIn)}</dd>
+            </div>
+            <div>
+              <dt className="text-ink-muted">Expected Move-Out</dt>
+              <dd className="mt-1 font-semibold text-ink">{formatDisplayDate(tenancy.moveOut)}</dd>
+            </div>
+          </dl>
+
+          <div className="mt-5">
+            {inviteExpired ? (
+              <div className="space-y-3">
+                <p className="text-sm font-semibold text-ink">Invitation Expired</p>
+                <p className="text-sm text-ink-secondary">
+                  This invitation link is no longer valid. Generate a new link to invite{' '}
+                  {tenancy.tenantName} again.
+                </p>
+              </div>
+            ) : (
+              <InvitationLinkCard invitationUrl={inviteLink} />
+            )}
+          </div>
+
           <div className="mt-4 flex flex-wrap gap-2">
             <Button
               variant="secondary"
+              disabled={resending}
               onClick={async () => {
                 try {
+                  setResending(true)
+                  setError('')
                   setTenancy(await resendInvitation(tenancy.id))
                 } catch (err) {
                   setError(getErrorMessage(err))
+                } finally {
+                  setResending(false)
                 }
               }}
             >
               <Mail className="h-4 w-4" />
-              Resend Invitation
+              {resending ? 'Generating...' : inviteExpired ? 'Generate New Invitation' : 'Resend Invitation'}
             </Button>
-            <Button
-              variant="secondary"
-              onClick={async () => {
-                await navigator.clipboard.writeText(inviteLink)
-                setCopied(true)
-                setTimeout(() => setCopied(false), 2000)
-              }}
-            >
-              <Copy className="h-4 w-4" />
-              {copied ? 'Copied' : 'Copy Link'}
-            </Button>
-            <Button variant="tertiary" onClick={() => setCancelOpen(true)}>
-              Cancel Invitation
-            </Button>
+            {tenancy.inviteStatus === 'Pending' && !inviteExpired ? (
+              <Button variant="tertiary" onClick={() => setCancelOpen(true)}>
+                Cancel Invitation
+              </Button>
+            ) : null}
           </div>
         </Card>
       ) : null}
@@ -499,6 +645,16 @@ export function TenancyDetailsPage() {
             </Button>
           </>
         }
+      />
+
+      <ExtensionReviewModal
+        open={extensionReviewOpen}
+        request={tenancy.pendingExtension}
+        saving={extensionSaving}
+        error={extensionError}
+        onClose={() => setExtensionReviewOpen(false)}
+        onApprove={handleExtensionApprove}
+        onReject={handleExtensionReject}
       />
     </div>
   )

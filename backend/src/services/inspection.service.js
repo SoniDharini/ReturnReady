@@ -178,11 +178,48 @@ export async function createInspection(user, tenancyId, { type = 'MOVE_IN' }) {
 export async function listInspectionsForTenancy(user, tenancyId) {
   await getTenancyForUser(user, tenancyId);
   const inspections = await Inspection.find({ tenancyId }).sort({ createdAt: -1 });
-  return inspections.map((doc) => doc.toJSON());
+  const repaired = [];
+  for (const doc of inspections) {
+    repaired.push(await finalizeMoveInLock(doc));
+  }
+  return repaired.map((doc) => doc.toJSON());
+}
+
+async function finalizeMoveInLock(inspection) {
+  if (
+    inspection.type !== 'MOVE_IN' ||
+    inspection.status === 'LOCKED' ||
+    inspection.status === 'COMPLETED' ||
+    !inspection.ownerApproved ||
+    !inspection.tenantApproved
+  ) {
+    return inspection;
+  }
+
+  inspection.status = 'LOCKED';
+  inspection.lockedAt = inspection.lockedAt || new Date();
+  inspection.completedAt = inspection.completedAt || new Date();
+  await inspection.save();
+
+  const tenancy = await Tenancy.findById(inspection.tenancyId);
+  if (tenancy && tenancy.stage === 'move-in') {
+    tenancy.stage = 'active';
+    tenancy.status = 'Active';
+    if (tenancy.occupancyStatus === 'UPCOMING') {
+      tenancy.occupancyStatus = 'CURRENTLY_STAYING';
+    }
+    try {
+      await tenancy.save();
+    } catch (error) {
+      if (error?.code !== 11000) throw error;
+    }
+  }
+
+  return inspection;
 }
 
 export async function getInspectionDetail(user, inspectionId) {
-  const inspection = await getInspectionForUser(user, inspectionId);
+  const inspection = await finalizeMoveInLock(await getInspectionForUser(user, inspectionId));
   const items = await InspectionItem.find({ inspectionId }).sort({ createdAt: 1 });
   const evidence = await InspectionEvidence.find({ inspectionId }).sort({ uploadedAt: -1 });
   const meters = await MeterReading.find({ inspectionId }).sort({ createdAt: 1 });
@@ -473,11 +510,50 @@ export async function getInspectionReview(user, inspectionId) {
     };
   });
 
+  let readiness = null;
+  if (detail.inspection.type === 'MOVE_OUT') {
+    const { TenancyCondition } = await import('../models/TenancyCondition.js');
+    const { PropertyChangeRequest } = await import('../models/PropertyChangeRequest.js');
+    const [conditions, approvedChanges] = await Promise.all([
+      TenancyCondition.find({ tenancyId: detail.inspection.tenancyId }).sort({
+        sortOrder: 1,
+        createdAt: 1,
+      }),
+      PropertyChangeRequest.find({
+        tenancyId: detail.inspection.tenancyId,
+        status: { $in: ['AUTHORIZED', 'APPROVED', 'COMPLETED'] },
+      }),
+    ]);
+    const conditionsReviewed = conditions.filter(
+      (c) => c.complianceStatus && c.complianceStatus !== 'NEEDS_REVIEW',
+    ).length;
+    const changesReviewed = approvedChanges.filter(
+      (c) => c.complianceStatus && c.complianceStatus !== 'NEEDS_REVIEW',
+    ).length;
+    readiness = {
+      roomsInspected: roomCompletion.filter((r) => r.isComplete).length,
+      roomsTotal: roomCompletion.length,
+      inventoryItems: `${detail.progress.completedItems}/${detail.progress.totalItems}`,
+      conditionsReviewed: `${conditionsReviewed}/${conditions.length}`,
+      approvedChangesReviewed: `${changesReviewed}/${approvedChanges.length}`,
+      meterReadings: detail.progress.meterCount,
+      keysReviewed: detail.accessItems?.length || 0,
+      conditionChanges: issues.length,
+      potentialDamage: issues.filter((i) => i.condition === 'DAMAGED').length,
+      missingItems: issues.filter((i) => i.condition === 'MISSING').length,
+      needsReview: incomplete.length,
+      hasNoSpecialConditions: conditions.length === 0 && approvedChanges.length === 0,
+      handoverConditions: conditions.map((c) => c.toJSON()),
+      approvedPropertyChanges: approvedChanges.map((c) => c.toJSON()),
+    };
+  }
+
   return {
     ...detail,
     issues,
     incomplete,
     roomCompletion,
+    readiness,
     canSubmit: incomplete.length === 0 && detail.items.length > 0,
   };
 }
@@ -521,8 +597,17 @@ export async function approveInspection(user, inspectionId) {
     throw new ApiError(400, 'Only move-in inspections require mutual approval');
   }
 
+  if (inspection.status === 'LOCKED' || inspection.status === 'COMPLETED') {
+    return getInspectionDetail(user, inspectionId);
+  }
+
   if (inspection.status !== 'APPROVAL_PENDING') {
     throw new ApiError(400, 'This inspection is not awaiting approval');
+  }
+
+  if (inspection.ownerApproved && inspection.tenantApproved) {
+    await finalizeMoveInLock(inspection);
+    return getInspectionDetail(user, inspectionId);
   }
 
   const conditionCheck = await validateConditionsAccepted(inspection.tenancyId);
@@ -562,20 +647,11 @@ export async function approveInspection(user, inspectionId) {
   }
 
   if (inspection.ownerApproved && inspection.tenantApproved) {
-    inspection.status = 'LOCKED';
-    inspection.lockedAt = inspection.lockedAt || new Date();
-    inspection.completedAt = inspection.completedAt || new Date();
-
-    const tenancy = await Tenancy.findById(inspection.tenancyId);
-    if (tenancy) {
-      tenancy.stage = 'active';
-      tenancy.status = 'Active';
-      tenancy.occupancyStatus = 'CURRENTLY_STAYING';
-      await tenancy.save();
-    }
+    await finalizeMoveInLock(inspection);
+  } else {
+    await inspection.save();
   }
 
-  await inspection.save();
   return getInspectionDetail(user, inspectionId);
 }
 
@@ -588,5 +664,9 @@ export async function listInspectionsForUser(user) {
   }
 
   const inspections = await Inspection.find(query).sort({ updatedAt: -1 });
-  return inspections.map((doc) => doc.toJSON());
+  const repaired = [];
+  for (const doc of inspections) {
+    repaired.push(await finalizeMoveInLock(doc));
+  }
+  return repaired.map((doc) => doc.toJSON());
 }

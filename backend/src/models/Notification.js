@@ -17,9 +17,15 @@ const notificationSchema = new mongoose.Schema(
     type: { type: String, required: true, trim: true },
     title: { type: String, required: true, trim: true },
     message: { type: String, trim: true, default: '' },
+    targetMoveOutDate: { type: String, trim: true, default: null },
     isRead: { type: Boolean, default: false },
   },
   { timestamps: true },
+);
+
+notificationSchema.index(
+  { tenancyId: 1, userId: 1, type: 1, targetMoveOutDate: 1 },
+  { name: 'move_out_reminder_dedupe' },
 );
 
 notificationSchema.set('toJSON', {

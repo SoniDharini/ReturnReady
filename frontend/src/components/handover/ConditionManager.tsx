@@ -19,9 +19,10 @@ import type { ConditionCategory, TenancyCondition } from '@/types'
 
 type ConditionManagerProps = {
   tenancyId: string
+  onChanged?: () => void
 }
 
-export function ConditionManager({ tenancyId }: ConditionManagerProps) {
+export function ConditionManager({ tenancyId, onChanged }: ConditionManagerProps) {
   const [conditions, setConditions] = useState<TenancyCondition[]>([])
   const [locked, setLocked] = useState(false)
   const [acceptedAt, setAcceptedAt] = useState<string | null>(null)
@@ -102,6 +103,7 @@ export function ConditionManager({ tenancyId }: ConditionManagerProps) {
       }
       setModalOpen(false)
       await load()
+      onChanged?.()
     } catch (err) {
       setError(getErrorMessage(err, 'Unable to save condition'))
     } finally {
@@ -116,6 +118,7 @@ export function ConditionManager({ tenancyId }: ConditionManagerProps) {
       await deleteCondition(removeTarget.id)
       setRemoveTarget(null)
       await load()
+      onChanged?.()
     } catch (err) {
       setError(getErrorMessage(err, 'Unable to remove condition'))
     } finally {
@@ -231,6 +234,7 @@ export function ConditionManager({ tenancyId }: ConditionManagerProps) {
         }
       >
         <div className="space-y-3">
+          {error && modalOpen ? <p className="text-sm text-danger">{error}</p> : null}
           <Input label="Condition Title" value={title} onChange={(e) => setTitle(e.target.value)} />
           <Select
             label="Category"

@@ -1,6 +1,13 @@
 import { Notification } from '../models/Notification.js';
 
-export async function createNotification({ userId, tenancyId, type, title, message }) {
+export async function createNotification({
+  userId,
+  tenancyId,
+  type,
+  title,
+  message,
+  targetMoveOutDate = null,
+}) {
   if (!userId) return null;
   return Notification.create({
     userId,
@@ -8,6 +15,7 @@ export async function createNotification({ userId, tenancyId, type, title, messa
     type,
     title,
     message: message || '',
+    targetMoveOutDate: targetMoveOutDate || null,
     isRead: false,
   });
 }

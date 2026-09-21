@@ -10,9 +10,10 @@ import { useAuth } from '@/context/AuthContext'
 import { useAppPaths } from '@/hooks/useAppPaths'
 import { formatDateTime } from '@/lib/utils'
 import { getErrorMessage } from '@/services/api'
-import { listConditions } from '@/services/handover.service'
+import { acceptConditions, listConditions } from '@/services/handover.service'
 import { approveInspection, getInspection } from '@/services/inspection.service'
 import type { InspectionDetail, TenancyCondition } from '@/types'
+import { ConditionManager } from '@/components/handover/ConditionManager'
 
 export function InspectionApprovalPage() {
   const { user } = useAuth()
@@ -26,10 +27,12 @@ export function InspectionApprovalPage() {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [error, setError] = useState('')
   const [conditions, setConditions] = useState<TenancyCondition[]>([])
+  const [acceptedCheck, setAcceptedCheck] = useState(false)
+  const [accepting, setAccepting] = useState(false)
 
-  const load = async () => {
+  const load = async (silent = false) => {
     if (!inspectionId) return
-    setLoading(true)
+    if (!silent) setLoading(true)
     try {
       const data = await getInspection(inspectionId)
       setDetail(data)
@@ -40,7 +43,7 @@ export function InspectionApprovalPage() {
     } catch (err) {
       setError(getErrorMessage(err, 'Unable to load inspection'))
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }
 
@@ -53,16 +56,42 @@ export function InspectionApprovalPage() {
   const ownerApproved = Boolean(inspection?.ownerApproved)
   const tenantApproved = Boolean(inspection?.tenantApproved)
 
+  const pendingConditions = conditions.filter(
+    (condition) => condition.status === 'DRAFT' || condition.status === 'AMENDMENT_PENDING',
+  )
+  const conditionsBlockApproval = pendingConditions.some(
+    (condition) => condition.isMandatory || condition.requiresTenantAcceptance !== false,
+  )
+
   const canApprove =
     inspection?.status === 'APPROVAL_PENDING' &&
-    ((user?.role === 'OWNER' && !ownerApproved) ||
+    ((user?.role === 'OWNER' && !ownerApproved && !conditionsBlockApproval) ||
       (user?.role === 'TENANT' && !tenantApproved))
+
+  const handleAcceptConditions = async () => {
+    if (!inspection?.tenancyId) return
+    setAccepting(true)
+    setError('')
+    try {
+      const data = await acceptConditions(inspection.tenancyId)
+      setConditions(data.conditions)
+      setAcceptedCheck(true)
+    } catch (err) {
+      setError(getErrorMessage(err, 'Unable to accept handover conditions'))
+    } finally {
+      setAccepting(false)
+    }
+  }
 
   const handleApprove = async () => {
     if (!inspectionId) return
     setApproving(true)
     setError('')
     try {
+      if (user?.role === 'TENANT' && conditionsBlockApproval && inspection?.tenancyId) {
+        const data = await acceptConditions(inspection.tenancyId)
+        setConditions(data.conditions)
+      }
       const data = await approveInspection(inspectionId)
       setDetail(data)
       setConfirmOpen(false)
@@ -124,9 +153,23 @@ export function InspectionApprovalPage() {
         </div>
 
         {canApprove ? (
-          <Button className="mt-6 w-full" onClick={() => setConfirmOpen(true)}>
+          <Button
+            className="mt-6 w-full"
+            onClick={() => setConfirmOpen(true)}
+            disabled={user?.role === 'TENANT' && conditionsBlockApproval && !acceptedCheck}
+          >
             Approve Inspection
           </Button>
+        ) : null}
+
+        {inspection.status === 'APPROVAL_PENDING' &&
+        user?.role === 'OWNER' &&
+        !ownerApproved &&
+        conditionsBlockApproval ? (
+          <p className="mt-4 text-sm text-warning">
+            The Tenant must accept the handover conditions before this Move-In inspection can be
+            approved.
+          </p>
         ) : null}
 
         {!locked && ownerApproved !== tenantApproved ? (
@@ -138,19 +181,47 @@ export function InspectionApprovalPage() {
         {error ? <p className="mt-3 text-sm text-danger">{error}</p> : null}
       </Card>
 
-      {conditions.length ? (
+      {user?.role === 'OWNER' && inspection.tenancyId && !locked ? (
+        <ConditionManager tenancyId={inspection.tenancyId} onChanged={() => void load(true)} />
+      ) : conditions.length ? (
         <Card>
           <h2 className="text-lg font-bold text-ink">Conditions Before Moving In</h2>
           <ul className="mt-3 space-y-2 text-sm">
             {conditions.map((condition) => (
               <li key={condition.id}>
-                <p className="font-semibold text-ink">✓ {condition.title}</p>
+                <p className="font-semibold text-ink">
+                  {condition.status === 'ACCEPTED' ? '✓ ' : ''}
+                  {condition.title}
+                  {condition.status === 'DRAFT' || condition.status === 'AMENDMENT_PENDING'
+                    ? ' — awaiting Tenant acceptance'
+                    : ''}
+                </p>
                 {condition.description ? (
                   <p className="text-ink-secondary">{condition.description}</p>
                 ) : null}
               </li>
             ))}
           </ul>
+          {user?.role === 'TENANT' && conditionsBlockApproval ? (
+            <div className="mt-4 space-y-3">
+              <label className="flex items-start gap-2 text-sm text-ink-secondary">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={acceptedCheck}
+                  onChange={(e) => setAcceptedCheck(e.target.checked)}
+                />
+                I have read and agree to the property handover conditions.
+              </label>
+              <Button
+                variant="secondary"
+                disabled={accepting || !acceptedCheck}
+                onClick={() => void handleAcceptConditions()}
+              >
+                {accepting ? 'Accepting...' : 'Accept Handover Conditions'}
+              </Button>
+            </div>
+          ) : null}
         </Card>
       ) : null}
 
@@ -186,7 +257,11 @@ export function InspectionApprovalPage() {
         open={confirmOpen}
         onClose={() => setConfirmOpen(false)}
         title="Approve Move-In Inspection?"
-        description="By approving, you confirm that the recorded property condition represents the agreed Move-In condition. Once both parties approve, the inspection will be locked."
+        description={
+          user?.role === 'TENANT' && conditionsBlockApproval
+            ? 'This will first accept the handover conditions, then record your approval of the Move-In inspection. Once both parties approve, the inspection will be locked.'
+            : 'By approving, you confirm that the recorded property condition represents the agreed Move-In condition. Once both parties approve, the inspection will be locked.'
+        }
         footer={
           <>
             <Button variant="secondary" onClick={() => setConfirmOpen(false)}>

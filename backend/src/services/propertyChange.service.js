@@ -1,12 +1,18 @@
 import fs from 'fs';
 import path from 'path';
 import { Property } from '../models/Property.js';
-import { PropertyChangeRequest } from '../models/PropertyChangeRequest.js';
+import {
+  AUTHORIZED_CHANGE_STATUSES,
+  isAwaitingTenantAcceptance,
+  isAuthorizedChangeStatus,
+  PropertyChangeRequest,
+} from '../models/PropertyChangeRequest.js';
 import { Tenancy } from '../models/Tenancy.js';
 import { ApiError } from '../utils/ApiError.js';
 import { createNotification } from './notification.service.js';
 import { getTenancyForUser } from './settlementHelpers.js';
 import { getTenantAccessForUser } from './tenancy.service.js';
+import { appendSystemMessage } from './propertyChangeChat.service.js';
 import { UPLOADS_ROOT } from '../middleware/upload.middleware.js';
 
 const CHANGE_UPLOADS_DIR = path.join(UPLOADS_ROOT, 'change-requests');
@@ -61,6 +67,96 @@ function propertyRooms(property) {
   }));
 }
 
+function normalizeItems(items = []) {
+  return (Array.isArray(items) ? items : [])
+    .map((item) => {
+      if (typeof item === 'string') {
+        return { text: item.trim(), details: '' };
+      }
+      return {
+        text: String(item?.text || '').trim(),
+        details: String(item?.details || '').trim(),
+      };
+    })
+    .filter((item) => item.text.length >= 2);
+}
+
+function syncOwnerConditionsText(request) {
+  const items = request.ownerConditionItems || [];
+  request.ownerConditions = items
+    .map((item) => item.text)
+    .filter(Boolean)
+    .join('\n');
+}
+
+function withTenancyContext(request, tenancy) {
+  return {
+    ...request.toJSON(),
+    propertyName: tenancy?.propertyName || '',
+    tenantName: tenancy?.tenantName || '',
+    ownerName: tenancy?.ownerName || '',
+  };
+}
+
+function pushTimeline(request, action, note, actorRole) {
+  request.timeline.push({
+    action,
+    note: note || '',
+    actorRole,
+    at: new Date(),
+  });
+}
+
+function extractOwnerConditionItems(payload = {}) {
+  let items = normalizeItems(payload.ownerConditionItems || payload.conditions);
+  if (!items.length && (payload.ownerConditions || '').trim()) {
+    items = String(payload.ownerConditions)
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((text) => ({ text, details: '' }));
+  }
+  return items;
+}
+
+async function recordChatEvent(tenancy, {
+  senderId,
+  senderRole,
+  senderName,
+  messageType,
+  text,
+  changeRequestId,
+}) {
+  try {
+    await appendSystemMessage({
+      tenancy,
+      senderId,
+      senderRole,
+      senderName,
+      messageType,
+      text,
+      changeRequestId,
+    });
+  } catch {
+    // Chat timeline is best-effort; request workflow must not fail if chat write fails.
+  }
+}
+
+async function authorizeRequest(request, user, note = 'Owner authorized the property change') {
+  const now = new Date();
+  request.status = 'AUTHORIZED';
+  request.finalApprovedBy = user.id;
+  request.finalApprovedAt = now;
+  request.approvedBy = user.id;
+  request.authorizedAt = now;
+  request.reviewedBy = request.reviewedBy || user.id;
+  request.reviewedAt = request.reviewedAt || now;
+  request.ownerResponse = note;
+  pushTimeline(request, 'FINAL_APPROVED', note, 'OWNER');
+  await request.save();
+  return request;
+}
+
 export async function listChangeRequests(user, tenancyId) {
   const tenancy = await getTenancyForUser(user, tenancyId);
   const property = await Property.findById(tenancy.propertyId);
@@ -78,20 +174,11 @@ export async function listChangeRequests(user, tenancyId) {
   };
 }
 
-function withTenancyContext(request, tenancy) {
-  return {
-    ...request.toJSON(),
-    propertyName: tenancy?.propertyName || '',
-    tenantName: tenancy?.tenantName || '',
-    ownerName: tenancy?.ownerName || '',
-  };
-}
-
 export async function listPendingChangeRequestsForOwner(user) {
   if (user.role !== 'OWNER') throw new ApiError(403, 'Only owners can list pending requests');
   const requests = await PropertyChangeRequest.find({
     ownerId: user.id,
-    status: 'PENDING',
+    status: { $in: ['PENDING', 'AWAITING_OWNER_FINAL_APPROVAL'] },
   }).sort({ requestedAt: -1 });
   const tenancyIds = [...new Set(requests.map((r) => r.tenancyId.toString()))];
   const tenancies = await Tenancy.find({ _id: { $in: tenancyIds } });
@@ -124,22 +211,33 @@ export async function createChangeRequest(user, tenancyId, payload) {
   }
 
   const property = await Property.findById(tenancy.propertyId);
-  const room = (property?.roomList || []).find(
+  let room = (property?.roomList || []).find(
     (item) => (item._id?.toString?.() || item.id) === payload.roomId,
   );
-  if (payload.roomId && property?.roomList?.length && !room) {
+  if (!room && payload.roomName === 'Other') {
+    room = { name: 'Other' };
+  }
+  if (payload.roomId && property?.roomList?.length && !room && payload.roomName !== 'Other') {
     throw new ApiError(400, 'Invalid room');
   }
-  if (payload.inventoryItemId) {
-    const foundItem = (property?.roomList || []).some((item) =>
-      (item.items || []).some(
-        (inventory) => (inventory._id?.toString?.() || inventory.id) === payload.inventoryItemId,
-      ),
-    );
-    if (!foundItem) throw new ApiError(400, 'Invalid inventory item');
+
+  const tenantCommitments = normalizeItems(payload.tenantCommitments);
+  if (!tenantCommitments.length) {
+    throw new ApiError(400, 'Add at least one commitment describing what you agree to do');
   }
 
-  const evidenceUrl = saveDataUrl('request', payload.evidenceDataUrl);
+  const evidenceUrls = [];
+  if (payload.evidenceDataUrl) {
+    const url = saveDataUrl('request', payload.evidenceDataUrl);
+    if (url) evidenceUrls.push(url);
+  }
+  if (Array.isArray(payload.evidenceDataUrls)) {
+    for (const dataUrl of payload.evidenceDataUrls) {
+      const url = saveDataUrl('request', dataUrl);
+      if (url) evidenceUrls.push(url);
+    }
+  }
+
   const request = await PropertyChangeRequest.create({
     tenancyId: tenancy._id,
     propertyId: tenancy.propertyId,
@@ -155,9 +253,12 @@ export async function createChangeRequest(user, tenancyId, payload) {
     requestedAction: payload.requestedAction || payload.title,
     beforeState: payload.beforeState || '',
     requestedState: payload.requestedState || '',
-    evidence: evidenceUrl
-      ? [{ fileUrl: evidenceUrl, storageKey: evidenceUrl, uploadedBy: user.id }]
-      : [],
+    tenantCommitments,
+    evidence: evidenceUrls.map((fileUrl) => ({
+      fileUrl,
+      storageKey: fileUrl,
+      uploadedBy: user.id,
+    })),
     status: 'PENDING',
     timeline: [
       {
@@ -173,27 +274,95 @@ export async function createChangeRequest(user, tenancyId, payload) {
     userId: tenancy.ownerId,
     tenancyId: tenancy._id,
     type: 'PROPERTY_CHANGE_REQUESTED',
-    title: 'Property Change Approval Required',
-    message: `${tenancy.tenantName} requested approval to ${request.title}${
-      request.roomName ? ` in ${request.roomName}` : ''
+    title: 'Property Change Request',
+    message: `${tenancy.tenantName} requested permission to ${request.title}${
+      request.roomName ? ` in the ${request.roomName}` : ''
     }.`,
   });
 
-  const { appendSystemMessage } = await import('./propertyChangeChat.service.js');
-  await appendSystemMessage({
-    tenancy,
+  await recordChatEvent(tenancy, {
     senderId: user.id,
     senderRole: 'TENANT',
     senderName: tenancy.tenantName,
     messageType: 'APPROVAL_REQUEST',
-    text: request.description || request.title,
+    text: `Tenant requested permission to ${request.title}${
+      request.roomName ? ` in the ${request.roomName}` : ''
+    }.`,
     changeRequestId: request._id,
   });
 
-  return request.toJSON();
+  return withTenancyContext(request, tenancy);
 }
 
-export async function approveChangeRequest(user, requestId, payload = {}) {
+/**
+ * Owner proposes conditions (not final approval).
+ * Tenant must explicitly accept these conditions before the change is authorized.
+ */
+export async function sendOwnerConditions(user, requestId, payload = {}) {
+  if (user.role !== 'OWNER') throw new ApiError(403, 'Only owners can send conditions');
+
+  const request = await PropertyChangeRequest.findById(requestId);
+  if (!request) throw new ApiError(404, 'Change request not found');
+
+  const tenancy = await Tenancy.findOne({ _id: request.tenancyId, ownerId: user.id });
+  if (!tenancy) throw new ApiError(403, 'You do not have permission');
+  if (request.status !== 'PENDING') {
+    throw new ApiError(400, 'Conditions can only be sent for requests awaiting owner review');
+  }
+
+  const items = extractOwnerConditionItems(payload);
+  if (!items.length) {
+    throw new ApiError(400, 'Add at least one owner condition before sending to the Tenant');
+  }
+
+  request.ownerConditionItems = items;
+  syncOwnerConditionsText(request);
+  request.ownerNotes = payload.ownerNotes || '';
+  request.reviewedBy = user.id;
+  request.reviewedAt = new Date();
+  request.status = 'AWAITING_TENANT_ACCEPTANCE';
+  request.tenantConditionsAccepted = false;
+  request.tenantConditionsAcceptedAt = null;
+  request.tenantConditionsAcceptedBy = null;
+  request.authorizedAt = null;
+  request.finalApprovedAt = null;
+  request.finalApprovedBy = null;
+  request.approvedBy = null;
+  request.ownerResponse = `Approved with conditions (${items.length})`;
+  pushTimeline(
+    request,
+    'CONDITIONS_PROPOSED',
+    `Owner approved with ${items.length} condition(s)`,
+    'OWNER',
+  );
+  await request.save();
+
+  if (tenancy.tenantUserId) {
+    await createNotification({
+      userId: tenancy.tenantUserId,
+      tenancyId: tenancy._id,
+      type: 'PROPERTY_CHANGE_CONDITIONS_PROPOSED',
+      title: 'Your property change request has been approved with conditions',
+      message: `Please review and accept the Owner's conditions for "${request.title}" before the change is authorized.`,
+    });
+  }
+
+  await recordChatEvent(tenancy, {
+    senderId: user.id,
+    senderRole: 'OWNER',
+    senderName: tenancy.ownerName,
+    messageType: 'CONDITION_PROPOSED',
+    text: `Owner approved "${request.title}" with conditions:\n${items
+      .map((item, index) => `${index + 1}. ${item.text}`)
+      .join('\n')}`,
+    changeRequestId: request._id,
+  });
+
+  return withTenancyContext(request, tenancy);
+}
+
+/** Approve without additional owner conditions → immediately AUTHORIZED */
+export async function approveWithoutConditions(user, requestId, payload = {}) {
   if (user.role !== 'OWNER') throw new ApiError(403, 'Only owners can approve change requests');
 
   const request = await PropertyChangeRequest.findById(requestId);
@@ -202,66 +371,52 @@ export async function approveChangeRequest(user, requestId, payload = {}) {
   const tenancy = await Tenancy.findOne({ _id: request.tenancyId, ownerId: user.id });
   if (!tenancy) throw new ApiError(403, 'You do not have permission');
   if (request.status !== 'PENDING') {
-    throw new ApiError(400, 'Only pending requests can be approved');
+    throw new ApiError(400, 'Only pending requests can be approved directly');
   }
 
-  const hasConditions = Boolean((payload.ownerConditions || '').trim());
-  request.reviewedBy = user.id;
-  request.approvedBy = user.id;
-  request.reviewedAt = new Date();
   request.ownerNotes = payload.ownerNotes || '';
-  request.ownerConditions = payload.ownerConditions || '';
-  request.status = hasConditions ? 'APPROVED_PENDING_TENANT_ACCEPTANCE' : 'APPROVED';
-  request.tenantConditionsAccepted = !hasConditions;
-  request.authorizedAt = hasConditions ? null : new Date();
-  request.ownerResponse = hasConditions
-    ? `Approved with conditions: ${payload.ownerConditions}`
-    : 'Approved';
-  request.timeline.push({
-    action: hasConditions ? 'CONDITIONALLY_APPROVED' : 'APPROVED',
-    note: payload.ownerConditions || payload.ownerNotes || 'Approved',
-    actorRole: 'OWNER',
-    at: new Date(),
-  });
-  await request.save();
-
-  const { appendSystemMessage } = await import('./propertyChangeChat.service.js');
-  await appendSystemMessage({
-    tenancy,
-    senderId: user.id,
-    senderRole: 'OWNER',
-    senderName: tenancy.ownerName,
-    messageType: hasConditions ? 'CONDITION_PROPOSED' : 'APPROVAL_GRANTED',
-    text: hasConditions
-      ? payload.ownerConditions
-      : `${tenancy.ownerName} approved this property change.`,
-    changeRequestId: request._id,
-  });
-  if (!hasConditions) {
-    await appendSystemMessage({
-      tenancy,
-      senderId: user.id,
-      senderRole: 'OWNER',
-      senderName: tenancy.ownerName,
-      messageType: 'CHANGE_AUTHORIZED',
-      text: 'This property change is now authorized.',
-      changeRequestId: request._id,
-    });
-  }
+  request.ownerConditionItems = [];
+  request.ownerConditions = '';
+  request.tenantConditionsAccepted = true;
+  request.tenantConditionsAcceptedAt = new Date();
+  pushTimeline(request, 'APPROVED_WITHOUT_CONDITIONS', 'Owner approved without extra conditions', 'OWNER');
+  await authorizeRequest(request, user, 'Owner approved without additional conditions');
 
   if (tenancy.tenantUserId) {
     await createNotification({
       userId: tenancy.tenantUserId,
       tenancyId: tenancy._id,
-      type: 'PROPERTY_CHANGE_APPROVED',
-      title: hasConditions ? 'Action Required' : 'Property Change Approved',
-      message: hasConditions
-        ? `Your property change was conditionally approved. Review and accept the Owner's conditions.`
-        : 'You may proceed with the approved change.',
+      type: 'PROPERTY_CHANGE_AUTHORIZED',
+      title: 'Property Change Approved',
+      message: `Your request "${request.title}"${
+        request.roomName ? ` in the ${request.roomName}` : ''
+      } was approved. You may proceed.`,
     });
   }
 
-  return request.toJSON();
+  await recordChatEvent(tenancy, {
+    senderId: user.id,
+    senderRole: 'OWNER',
+    senderName: tenancy.ownerName,
+    messageType: 'APPROVAL_GRANTED',
+    text: `Owner approved "${request.title}" without additional conditions.`,
+    changeRequestId: request._id,
+  });
+
+  return withTenancyContext(request, tenancy);
+}
+
+/**
+ * Owner decision entrypoint:
+ * - with conditions → AWAITING_TENANT_ACCEPTANCE
+ * - without conditions → AUTHORIZED
+ */
+export async function approveChangeRequest(user, requestId, payload = {}) {
+  const items = extractOwnerConditionItems(payload);
+  if (items.length) {
+    return sendOwnerConditions(user, requestId, payload);
+  }
+  return approveWithoutConditions(user, requestId, payload);
 }
 
 export async function rejectChangeRequest(user, requestId, payload = {}) {
@@ -272,38 +427,26 @@ export async function rejectChangeRequest(user, requestId, payload = {}) {
 
   const tenancy = await Tenancy.findOne({ _id: request.tenancyId, ownerId: user.id });
   if (!tenancy) throw new ApiError(403, 'You do not have permission');
-  if (request.status !== 'PENDING') {
-    throw new ApiError(400, 'Only pending requests can be rejected');
+
+  const rejectable = ['PENDING', 'AWAITING_OWNER_FINAL_APPROVAL'];
+  if (!rejectable.includes(request.status)) {
+    throw new ApiError(400, 'This request cannot be rejected in its current status');
   }
 
   const reason = (payload.reason || payload.ownerNotes || '').trim();
   if (!reason) {
     throw new ApiError(400, 'A rejection reason is required');
   }
+
   request.status = 'REJECTED';
   request.reviewedBy = user.id;
   request.rejectedBy = user.id;
   request.reviewedAt = new Date();
+  request.rejectionReason = reason;
   request.ownerNotes = reason;
-  request.ownerResponse = reason || 'Not approved';
-  request.timeline.push({
-    action: 'REJECTED',
-    note: reason || 'Not approved',
-    actorRole: 'OWNER',
-    at: new Date(),
-  });
+  request.ownerResponse = reason;
+  pushTimeline(request, 'REJECTED', reason, 'OWNER');
   await request.save();
-
-  const { appendSystemMessage } = await import('./propertyChangeChat.service.js');
-  await appendSystemMessage({
-    tenancy,
-    senderId: user.id,
-    senderRole: 'OWNER',
-    senderName: tenancy.ownerName,
-    messageType: 'APPROVAL_REJECTED',
-    text: reason,
-    changeRequestId: request._id,
-  });
 
   if (tenancy.tenantUserId) {
     await createNotification({
@@ -311,11 +454,20 @@ export async function rejectChangeRequest(user, requestId, payload = {}) {
       tenancyId: tenancy._id,
       type: 'PROPERTY_CHANGE_REJECTED',
       title: 'Property Change Rejected',
-      message: `Your request was not approved. Reason: ${reason}`,
+      message: `Your property change request "${request.title}" has been rejected. Reason: ${reason}`,
     });
   }
 
-  return request.toJSON();
+  await recordChatEvent(tenancy, {
+    senderId: user.id,
+    senderRole: 'OWNER',
+    senderName: tenancy.ownerName,
+    messageType: 'APPROVAL_REJECTED',
+    text: `Owner rejected "${request.title}". Reason: ${reason}`,
+    changeRequestId: request._id,
+  });
+
+  return withTenancyContext(request, tenancy);
 }
 
 export async function acceptOwnerConditions(user, requestId) {
@@ -334,54 +486,164 @@ export async function acceptOwnerConditions(user, requestId) {
   if (!tenancy) throw new ApiError(403, 'You do not have permission');
   assertActiveTenant(tenancy);
 
-  if (request.status === 'REJECTED') {
-    throw new ApiError(400, 'Rejected request cannot be authorized');
+  if (request.status === 'REJECTED' || request.status === 'CONDITIONS_DECLINED') {
+    throw new ApiError(400, 'This request can no longer be accepted');
   }
-  if (request.status !== 'APPROVED_PENDING_TENANT_ACCEPTANCE') {
+  if (!isAwaitingTenantAcceptance(request.status)) {
     throw new ApiError(400, 'This request is not waiting for condition acceptance');
   }
 
   request.tenantConditionsAccepted = true;
   request.tenantConditionsAcceptedAt = new Date();
-  request.authorizedAt = new Date();
-  request.status = 'APPROVED';
-  request.timeline.push({
-    action: 'CONDITIONS_ACCEPTED',
-    note: 'Tenant accepted owner conditions',
-    actorRole: 'TENANT',
-    at: new Date(),
-  });
-  await request.save();
+  request.tenantConditionsAcceptedBy = user.id;
+  pushTimeline(request, 'CONDITIONS_ACCEPTED', 'Tenant accepted all owner conditions', 'TENANT');
 
-  const { appendSystemMessage } = await import('./propertyChangeChat.service.js');
-  await appendSystemMessage({
-    tenancy,
-    senderId: user.id,
-    senderRole: 'TENANT',
-    senderName: tenancy.tenantName,
-    messageType: 'CONDITION_ACCEPTED',
-    text: `${tenancy.tenantName} accepted the Owner's conditions.`,
-    changeRequestId: request._id,
-  });
-  await appendSystemMessage({
-    tenancy,
-    senderId: user.id,
-    senderRole: 'TENANT',
-    senderName: tenancy.tenantName,
-    messageType: 'CHANGE_AUTHORIZED',
-    text: 'This property change is now authorized.',
-    changeRequestId: request._id,
-  });
+  // Owner already approved with conditions; Tenant acceptance completes the agreement.
+  const now = new Date();
+  request.status = 'AUTHORIZED';
+  request.authorizedAt = now;
+  request.finalApprovedAt = now;
+  request.finalApprovedBy = request.reviewedBy || request.ownerId;
+  request.approvedBy = request.reviewedBy || request.ownerId;
+  request.ownerResponse = 'Final agreement recorded after Tenant accepted conditions';
+  pushTimeline(request, 'FINAL_APPROVED', 'Owner approval + Tenant condition acceptance', 'TENANT');
+  await request.save();
 
   await createNotification({
     userId: tenancy.ownerId,
     tenancyId: tenancy._id,
     type: 'PROPERTY_CHANGE_CONDITIONS_ACCEPTED',
-    title: 'Conditions Accepted',
-    message: `${tenancy.tenantName} accepted the conditions for the approved property change.`,
+    title: 'Conditions Accepted — Change Approved',
+    message: `${tenancy.tenantName} accepted the conditions for "${request.title}". The property change is now officially approved.`,
   });
 
-  return request.toJSON();
+  if (tenancy.tenantUserId) {
+    await createNotification({
+      userId: tenancy.tenantUserId,
+      tenancyId: tenancy._id,
+      type: 'PROPERTY_CHANGE_AUTHORIZED',
+      title: 'Property Change Officially Approved',
+      message: `Your request "${request.title}"${
+        request.roomName ? ` in the ${request.roomName}` : ''
+      } is now approved. You may proceed according to the agreed conditions.`,
+    });
+  }
+
+  await recordChatEvent(tenancy, {
+    senderId: user.id,
+    senderRole: 'TENANT',
+    senderName: tenancy.tenantName,
+    messageType: 'CONDITION_ACCEPTED',
+    text: `Tenant accepted the Owner conditions for "${request.title}".`,
+    changeRequestId: request._id,
+  });
+  await recordChatEvent(tenancy, {
+    senderId: request.reviewedBy || tenancy.ownerId,
+    senderRole: 'OWNER',
+    senderName: tenancy.ownerName,
+    messageType: 'CHANGE_AUTHORIZED',
+    text: `Property change request "${request.title}" is officially approved.`,
+    changeRequestId: request._id,
+  });
+
+  return withTenancyContext(request, tenancy);
+}
+
+export async function declineOwnerConditions(user, requestId, payload = {}) {
+  if (user.role !== 'TENANT') {
+    throw new ApiError(403, 'Only tenants can decline owner conditions');
+  }
+
+  const request = await PropertyChangeRequest.findById(requestId);
+  if (!request) throw new ApiError(404, 'Change request not found');
+
+  const tenancy = await Tenancy.findOne({
+    _id: request.tenancyId,
+    tenantUserId: user.id,
+    inviteStatus: 'Accepted',
+  });
+  if (!tenancy) throw new ApiError(403, 'You do not have permission');
+  assertActiveTenant(tenancy);
+
+  if (!isAwaitingTenantAcceptance(request.status)) {
+    throw new ApiError(400, 'This request is not waiting for condition acceptance');
+  }
+
+  const note = (payload.reason || payload.note || '').trim();
+  request.status = 'CONDITIONS_DECLINED';
+  request.tenantConditionsAccepted = false;
+  request.ownerResponse = note || 'Tenant declined owner conditions';
+  pushTimeline(request, 'CONDITIONS_DECLINED', note || 'Tenant declined owner conditions', 'TENANT');
+  await request.save();
+
+  await createNotification({
+    userId: tenancy.ownerId,
+    tenancyId: tenancy._id,
+    type: 'PROPERTY_CHANGE_CONDITIONS_DECLINED',
+    title: 'Owner Conditions Declined',
+    message: `${tenancy.tenantName} declined the conditions for "${request.title}". The change remains unauthorized.`,
+  });
+
+  await recordChatEvent(tenancy, {
+    senderId: user.id,
+    senderRole: 'TENANT',
+    senderName: tenancy.tenantName,
+    messageType: 'SYSTEM',
+    text: `Tenant declined the Owner conditions for "${request.title}".${
+      note ? ` Reason: ${note}` : ''
+    }`,
+    changeRequestId: request._id,
+  });
+
+  return withTenancyContext(request, tenancy);
+}
+
+export async function finalApproveChangeRequest(user, requestId) {
+  if (user.role !== 'OWNER') {
+    throw new ApiError(403, 'Only owners can give final approval');
+  }
+
+  const request = await PropertyChangeRequest.findById(requestId);
+  if (!request) throw new ApiError(404, 'Change request not found');
+
+  const tenancy = await Tenancy.findOne({ _id: request.tenancyId, ownerId: user.id });
+  if (!tenancy) throw new ApiError(403, 'You do not have permission');
+
+  if (isAuthorizedChangeStatus(request.status) && request.status !== 'COMPLETED') {
+    return withTenancyContext(request, tenancy);
+  }
+
+  if (request.status !== 'AWAITING_OWNER_FINAL_APPROVAL') {
+    throw new ApiError(400, 'Final approval is only available after the Tenant accepts conditions');
+  }
+  if (!request.tenantConditionsAccepted) {
+    throw new ApiError(400, 'Tenant must accept owner conditions before final approval');
+  }
+
+  await authorizeRequest(request, user, 'Final approval granted');
+
+  if (tenancy.tenantUserId) {
+    await createNotification({
+      userId: tenancy.tenantUserId,
+      tenancyId: tenancy._id,
+      type: 'PROPERTY_CHANGE_AUTHORIZED',
+      title: 'Property Change Approved',
+      message: `Your request to ${request.title}${
+        request.roomName ? ` in the ${request.roomName}` : ''
+      } has received final Owner approval. You may proceed according to the agreed conditions.`,
+    });
+  }
+
+  await recordChatEvent(tenancy, {
+    senderId: user.id,
+    senderRole: 'OWNER',
+    senderName: tenancy.ownerName,
+    messageType: 'CHANGE_AUTHORIZED',
+    text: `Owner gave final approval for "${request.title}".`,
+    changeRequestId: request._id,
+  });
+
+  return withTenancyContext(request, tenancy);
 }
 
 export async function completeChangeRequest(user, requestId, payload = {}) {
@@ -400,16 +662,14 @@ export async function completeChangeRequest(user, requestId, payload = {}) {
   if (!tenancy) throw new ApiError(403, 'You do not have permission');
   assertActiveTenant(tenancy);
 
-  if (request.status === 'REJECTED') {
-    throw new ApiError(400, 'Rejected request cannot be completed');
-  }
-  if (request.status !== 'APPROVED') {
-    throw new ApiError(400, 'Only approved requests can be marked complete');
+  if (request.status !== 'AUTHORIZED' && request.status !== 'APPROVED') {
+    throw new ApiError(400, 'Only authorized requests can be marked complete');
   }
 
   const evidenceUrl = saveDataUrl('complete', payload.evidenceDataUrl);
   request.status = 'COMPLETED';
   request.completedAt = new Date();
+  request.completionNotes = payload.note || payload.completionNotes || '';
   if (evidenceUrl) {
     request.completionEvidence.push({
       fileUrl: evidenceUrl,
@@ -417,37 +677,18 @@ export async function completeChangeRequest(user, requestId, payload = {}) {
       uploadedBy: user.id,
     });
   }
-  request.timeline.push({
-    action: 'COMPLETED',
-    note: payload.note || 'Change marked complete',
-    actorRole: 'TENANT',
-    at: new Date(),
-  });
+  pushTimeline(request, 'COMPLETED', request.completionNotes || 'Change marked complete', 'TENANT');
   await request.save();
-
-  const { appendSystemMessage } = await import('./propertyChangeChat.service.js');
-  await appendSystemMessage({
-    tenancy,
-    senderId: user.id,
-    senderRole: 'TENANT',
-    senderName: tenancy.tenantName,
-    messageType: 'CHANGE_COMPLETED',
-    text: payload.note || `${tenancy.tenantName} marked the approved property change as completed.`,
-    changeRequestId: request._id,
-    attachments: evidenceUrl
-      ? [{ fileUrl: evidenceUrl, storageKey: evidenceUrl, uploadedBy: user.id, uploadedAt: new Date() }]
-      : [],
-  });
 
   await createNotification({
     userId: tenancy.ownerId,
     tenancyId: tenancy._id,
     type: 'PROPERTY_CHANGE_COMPLETED',
-    title: 'Approved Property Change Completed',
-    message: `${tenancy.tenantName} marked ${request.title} as completed.`,
+    title: 'Property Change Completed',
+    message: `${tenancy.tenantName} marked the approved ${request.title} as completed.`,
   });
 
-  return request.toJSON();
+  return withTenancyContext(request, tenancy);
 }
 
 export async function cancelChangeRequest(user, requestId) {
@@ -469,14 +710,9 @@ export async function cancelChangeRequest(user, requestId) {
   }
 
   request.status = 'CANCELLED';
-  request.timeline.push({
-    action: 'CANCELLED',
-    note: 'Cancelled by tenant',
-    actorRole: 'TENANT',
-    at: new Date(),
-  });
+  pushTimeline(request, 'CANCELLED', 'Cancelled by tenant', 'TENANT');
   await request.save();
-  return request.toJSON();
+  return withTenancyContext(request, tenancy);
 }
 
 export const getChangeRequests = listChangeRequests;
@@ -487,7 +723,7 @@ export async function getApprovedChangesForMoveOut(user, tenancyId) {
   await validateChangeRequestAccess(user, { tenancyId });
   const requests = await PropertyChangeRequest.find({
     tenancyId,
-    status: { $in: ['APPROVED', 'COMPLETED'] },
+    status: { $in: AUTHORIZED_CHANGE_STATUSES },
   }).sort({ reviewedAt: 1 });
   return requests.map((r) => r.toJSON());
 }
@@ -500,8 +736,8 @@ export async function reviewChangeCompliance(user, requestId, payload = {}) {
   if (!request) throw new ApiError(404, 'Change request not found');
   const tenancy = await Tenancy.findOne({ _id: request.tenancyId, ownerId: user.id });
   if (!tenancy) throw new ApiError(403, 'Unauthorized Owner');
-  if (!['APPROVED', 'COMPLETED'].includes(request.status)) {
-    throw new ApiError(400, 'Only approved changes can be reviewed for compliance');
+  if (!isAuthorizedChangeStatus(request.status)) {
+    throw new ApiError(400, 'Only authorized changes can be reviewed for compliance');
   }
 
   request.complianceStatus = payload.complianceStatus;
@@ -520,5 +756,5 @@ export async function reviewChangeCompliance(user, requestId, payload = {}) {
     }
   }
   await request.save();
-  return request.toJSON();
+  return withTenancyContext(request, tenancy);
 }

@@ -438,7 +438,7 @@ export function SettlementPage() {
             requests={
               data.handover?.approvedChanges ||
               (data.changeRequests || []).filter((r) =>
-                ['APPROVED', 'COMPLETED'].includes(r.status),
+                ['AUTHORIZED', 'APPROVED', 'COMPLETED'].includes(r.status),
               )
             }
             onReview={async (request, payload) => {
@@ -811,7 +811,7 @@ export function SettlementPage() {
                 {(
                   data?.handover?.approvedChanges ||
                   (data?.changeRequests || []).filter((r) =>
-                    ['APPROVED', 'COMPLETED'].includes(r.status),
+                    ['AUTHORIZED', 'APPROVED', 'COMPLETED'].includes(r.status),
                   )
                 ).map((request) => (
                   <option key={request.id} value={request.id}>

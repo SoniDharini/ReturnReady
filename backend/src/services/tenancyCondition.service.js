@@ -43,10 +43,9 @@ export async function validateConditionsAccepted(tenancyId) {
   }
 
   const pending = mandatory.filter((c) => ['DRAFT', 'AMENDMENT_PENDING'].includes(c.status));
-  const accepted = Boolean(tenancy.conditionsAccepted) && pending.length === 0;
   return {
     required: true,
-    accepted,
+    accepted: pending.length === 0,
     pendingCount: pending.length,
     acceptedAt: tenancy.conditionsAcceptedAt,
     conditionVersion: tenancy.conditionVersion || 0,

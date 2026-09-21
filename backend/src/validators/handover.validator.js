@@ -31,11 +31,50 @@ export const changeRequestSchema = z.object({
   beforeState: z.string().trim().max(500).optional().default(''),
   requestedState: z.string().trim().max(500).optional().default(''),
   evidenceDataUrl: z.string().optional(),
+  evidenceDataUrls: z.array(z.string()).optional(),
+  tenantCommitments: z
+    .array(
+      z.union([
+        z.string().trim().min(2).max(500),
+        z.object({
+          text: z.string().trim().min(2).max(500),
+          details: z.string().trim().max(1000).optional().default(''),
+        }),
+      ]),
+    )
+    .min(1, 'Add at least one commitment'),
 });
 
 export const approveChangeSchema = z.object({
   ownerNotes: z.string().trim().max(2000).optional().default(''),
   ownerConditions: z.string().trim().max(2000).optional().default(''),
+  ownerConditionItems: z
+    .array(
+      z.union([
+        z.string().trim().min(2).max(500),
+        z.object({
+          text: z.string().trim().min(2).max(500),
+          details: z.string().trim().max(1000).optional().default(''),
+        }),
+      ]),
+    )
+    .optional(),
+  conditions: z
+    .array(
+      z.union([
+        z.string().trim().min(2).max(500),
+        z.object({
+          text: z.string().trim().min(2).max(500),
+          details: z.string().trim().max(1000).optional().default(''),
+        }),
+      ]),
+    )
+    .optional(),
+});
+
+export const declineConditionsSchema = z.object({
+  reason: z.string().trim().max(2000).optional().default(''),
+  note: z.string().trim().max(2000).optional().default(''),
 });
 
 export const rejectChangeSchema = z.object({
@@ -54,6 +93,7 @@ export const changeComplianceSchema = z.object({
 
 export const completeChangeSchema = z.object({
   note: z.string().trim().max(500).optional().default(''),
+  completionNotes: z.string().trim().max(500).optional().default(''),
   evidenceDataUrl: z.string().optional(),
 });
 

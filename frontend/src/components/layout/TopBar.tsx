@@ -121,7 +121,30 @@ export function TopBar({ title, onMenuClick, settingsPath }: TopBarProps) {
                           if (!n.isRead) void handleMarkRead(n.id)
                           setNotifOpen(false)
                           if (n.type?.startsWith('PROPERTY_CHANGE')) {
-                            navigate(paths.propertyChangeChat(n.tenancyId || undefined))
+                            if (n.tenancyId) {
+                              navigate(`${paths.propertyChanges}?tenancyId=${n.tenancyId}`)
+                            } else {
+                              navigate(paths.propertyChanges)
+                            }
+                            return
+                          }
+                          if (n.type?.startsWith('EXTENSION') && n.tenancyId) {
+                            navigate(paths.tenancy(n.tenancyId))
+                            return
+                          }
+                          if (
+                            n.tenancyId &&
+                            (n.type === 'MOVE_OUT_TODAY' ||
+                              n.type === 'MOVE_OUT_OVERDUE' ||
+                              n.type === 'MOVE_OUT_5_DAY_REMINDER' ||
+                              n.type === 'MOVE_OUT_STARTED' ||
+                              n.type === 'MOVE_OUT_30_DAY_REMINDER')
+                          ) {
+                            navigate(
+                              user?.role === 'OWNER'
+                                ? paths.tenancy(n.tenancyId)
+                                : paths.rental,
+                            )
                             return
                           }
                           if (n.tenancyId && n.type?.includes('MOVE_OUT')) {

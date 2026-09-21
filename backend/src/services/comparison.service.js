@@ -190,7 +190,7 @@ async function buildComparisonPayload(tenancy, moveIn, moveOut) {
     accessComparisons,
     meterComparisons,
     approvedChanges: changeRequests.filter((r) =>
-      ['APPROVED', 'COMPLETED'].includes(r.status),
+      ['AUTHORIZED', 'APPROVED', 'COMPLETED'].includes(r.status),
     ),
     unapprovedChanges: changeRequests.filter((r) => r.status === 'REJECTED'),
     conditions,

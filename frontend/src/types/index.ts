@@ -46,6 +46,63 @@ export type TenancyStage =
   | 'settlement'
   | 'complete'
 
+export type MoveOutReminderState =
+  | 'NONE'
+  | 'MORE_THAN_30'
+  | 'THIRTY_DAYS'
+  | 'FIVE_DAYS'
+  | 'TODAY'
+  | 'OVERDUE'
+
+export type MoveOutTimeline = {
+  expectedMoveOut: string
+  actualMoveOut?: string | null
+  daysUntilMoveOut: number | null
+  daysOverdue: number
+  moveOutReminderState: MoveOutReminderState
+  isMoveOutToday: boolean
+  isOverdue: boolean
+  label: string
+  canRequestExtension: boolean
+}
+
+export type TenancyDateHistoryEntry = {
+  field: string
+  oldValue: string
+  newValue: string
+  reason: string
+  changedBy?: string | null
+  requestedBy?: string | null
+  approvedBy?: string | null
+  changedAt?: string | null
+}
+
+export type MoveOutHistory = {
+  originalExpectedMoveOut: string
+  approvedExtensions: TenancyDateHistoryEntry[]
+  finalExpectedMoveOut: string
+  actualMoveOut?: string | null
+}
+
+export type ExtensionRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED'
+
+export type TenancyExtensionRequest = {
+  id: string
+  tenancyId: string
+  propertyId: string
+  tenantId?: string | null
+  ownerId: string
+  currentMoveOutDate: string
+  requestedMoveOutDate: string
+  reason: string
+  status: ExtensionRequestStatus
+  ownerResponse?: string
+  ownerNotes?: string
+  requestedAt?: string
+  reviewedAt?: string | null
+  cancelledAt?: string | null
+}
+
 export type AuthUser = {
   id: string
   name: string
@@ -69,6 +126,10 @@ export type AuthUser = {
     occupancyStatus?: OccupancyStatus
     stage?: TenancyStage
     deposit: number
+    moveOutTimeline?: MoveOutTimeline | null
+    pendingExtension?: TenancyExtensionRequest | null
+    latestRejectedExtension?: TenancyExtensionRequest | null
+    moveOutHistory?: MoveOutHistory | null
   }
 }
 
@@ -113,12 +174,22 @@ export type Tenancy = {
   status: string
   inviteStatus: 'Pending' | 'Accepted' | 'Expired' | 'Cancelled'
   inviteSentAt: string
+  inviteExpiresAt?: string
   inviteToken: string
+  invitationUrl?: string | null
+  invitationExpired?: boolean
+  createdAt?: string
+  updatedAt?: string
   stage: TenancyStage
   actualMoveOut?: string | null
   moveOutReason?: string
   moveOutNotes?: string
   occupancyStatus?: OccupancyStatus
+  dateHistory?: TenancyDateHistoryEntry[]
+  moveOutTimeline?: MoveOutTimeline | null
+  pendingExtension?: TenancyExtensionRequest | null
+  latestRejectedExtension?: TenancyExtensionRequest | null
+  moveOutHistory?: MoveOutHistory | null
 }
 
 export type Invitation = {
@@ -262,6 +333,22 @@ export type InspectionReview = InspectionDetail & {
     isComplete: boolean
   }>
   canSubmit: boolean
+  readiness?: {
+    roomsInspected: number
+    roomsTotal: number
+    inventoryItems: string
+    conditionsReviewed: string
+    approvedChangesReviewed: string
+    meterReadings: number
+    keysReviewed: number
+    conditionChanges: number
+    potentialDamage: number
+    missingItems: number
+    needsReview: number
+    hasNoSpecialConditions: boolean
+    handoverConditions?: unknown[]
+    approvedPropertyChanges?: unknown[]
+  } | null
 }
 
 export type ComparisonResult =
@@ -597,11 +684,21 @@ export type ChangeRequestType =
 
 export type ChangeRequestStatus =
   | 'PENDING'
+  | 'AWAITING_TENANT_ACCEPTANCE'
   | 'APPROVED_PENDING_TENANT_ACCEPTANCE'
+  | 'AWAITING_OWNER_FINAL_APPROVAL'
+  | 'AUTHORIZED'
   | 'APPROVED'
   | 'REJECTED'
+  | 'CONDITIONS_DECLINED'
   | 'CANCELLED'
   | 'COMPLETED'
+
+export type PropertyChangeCommitment = {
+  id?: string
+  text: string
+  details?: string
+}
 
 export type PropertyChangeMessageType =
   | 'TEXT'
@@ -672,12 +769,19 @@ export type PropertyChangeRequest = {
   requestedState?: string
   evidence: ChangeRequestEvidence[]
   completionEvidence: ChangeRequestEvidence[]
+  completionNotes?: string
   status: ChangeRequestStatus
+  tenantCommitments?: PropertyChangeCommitment[]
+  ownerConditionItems?: PropertyChangeCommitment[]
   ownerResponse?: string
   ownerNotes?: string
   ownerConditions?: string
+  rejectionReason?: string
   tenantConditionsAccepted?: boolean
   tenantConditionsAcceptedAt?: string | null
+  tenantConditionsAcceptedBy?: string | null
+  finalApprovedBy?: string | null
+  finalApprovedAt?: string | null
   authorizedAt?: string | null
   authorized?: boolean
   requestedAt?: string

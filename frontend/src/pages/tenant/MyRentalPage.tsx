@@ -5,11 +5,15 @@ import { PageHeader } from '@/components/shared/PageHeader'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
+import { TenancyDateCard } from '@/components/tenancy/TenancyDateCard'
+import { ExtensionRequestModal } from '@/components/tenancy/ExtensionRequestModal'
 import { formatCurrency } from '@/lib/utils'
 import { useAppPaths } from '@/hooks/useAppPaths'
 import { listTenancyInspections } from '@/services/inspection.service'
 import { acceptConditions, listChangeRequests, listConditions } from '@/services/handover.service'
+import { createExtensionRequest } from '@/services/tenancy.service'
 import { ChangeRequestCard } from '@/components/handover/ChangeRequestCard'
+import { getErrorMessage } from '@/services/api'
 import type { Inspection, PropertyChangeRequest, TenancyCondition } from '@/types'
 import {
   formatDisplayDate,
@@ -20,12 +24,15 @@ import {
 export function MyRentalPage() {
   const paths = useAppPaths()
   const navigate = useNavigate()
-  const { user } = useAuth()
+  const { user, refreshUser } = useAuth()
   const access = user?.tenantAccess
   const [inspections, setInspections] = useState<Inspection[]>([])
   const [changeRequests, setChangeRequests] = useState<PropertyChangeRequest[]>([])
   const [conditions, setConditions] = useState<TenancyCondition[]>([])
   const [accepting, setAccepting] = useState(false)
+  const [extensionOpen, setExtensionOpen] = useState(false)
+  const [extensionSaving, setExtensionSaving] = useState(false)
+  const [extensionError, setExtensionError] = useState('')
 
   useEffect(() => {
     if (!access?.tenancyId) return
@@ -48,6 +55,9 @@ export function MyRentalPage() {
         status: access.status === 'ACTIVE' ? 'Active' : access.status,
         actualMoveOut: access.actualMoveOut,
         moveOutReason: access.moveOutReason,
+        moveOutTimeline: access.moveOutTimeline,
+        moveOut: access.moveOut,
+        propertyName: access.propertyName,
       }
     : null
 
@@ -56,6 +66,22 @@ export function MyRentalPage() {
   return (
     <div className="space-y-6">
       <PageHeader title="My Rental" description="Your current tenancy information." />
+
+      <TenancyDateCard
+        role="TENANT"
+        moveIn={access?.moveIn}
+        expectedMoveOut={access?.moveOut}
+        actualMoveOut={access?.actualMoveOut}
+        timeline={access?.moveOutTimeline}
+        pendingExtension={access?.pendingExtension}
+        latestRejectedExtension={access?.latestRejectedExtension}
+        onRequestExtension={() => setExtensionOpen(true)}
+        onViewMoveOut={
+          action.path && action.label?.toLowerCase().includes('move-out')
+            ? () => navigate(action.path!)
+            : undefined
+        }
+      />
 
       <Card>
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -113,15 +139,19 @@ export function MyRentalPage() {
         <Card>
           <h2 className="text-lg font-bold text-ink">Property Handover Conditions</h2>
           <p className="mt-1 text-sm text-ink-secondary">
-            These are the conditions you agreed to before Move-In.
+            These are the property handover conditions for this rental.
           </p>
           <ul className="mt-4 space-y-2">
             {conditions.map((condition) => (
               <li key={condition.id} className="rounded-xl bg-surface-muted px-4 py-3">
                 <p className="font-semibold text-ink">
-                  {condition.status === 'AMENDMENT_PENDING' ? '' : '✓ '}
+                  {condition.status === 'ACCEPTED' ? '✓ ' : ''}
                   {condition.title}
-                  {condition.status === 'AMENDMENT_PENDING' ? ' (new amendment)' : ''}
+                  {condition.status === 'AMENDMENT_PENDING'
+                    ? ' (new amendment)'
+                    : condition.status === 'DRAFT'
+                      ? ' (awaiting acceptance)'
+                      : ''}
                 </p>
                 {condition.description ? (
                   <p className="mt-1 text-sm text-ink-secondary">{condition.description}</p>
@@ -129,7 +159,8 @@ export function MyRentalPage() {
               </li>
             ))}
           </ul>
-          {conditions.some((c) => c.status === 'AMENDMENT_PENDING') && access?.tenancyId ? (
+          {conditions.some((c) => c.status === 'AMENDMENT_PENDING' || c.status === 'DRAFT') &&
+          access?.tenancyId ? (
             <Button
               className="mt-4"
               disabled={accepting}
@@ -143,7 +174,11 @@ export function MyRentalPage() {
                 }
               }}
             >
-              {accepting ? 'Accepting conditions...' : 'Acknowledge New Conditions'}
+              {accepting
+                ? 'Accepting conditions...'
+                : conditions.some((c) => c.status === 'AMENDMENT_PENDING')
+                  ? 'Acknowledge New Conditions'
+                  : 'Accept Handover Conditions'}
             </Button>
           ) : null}
         </Card>
@@ -154,11 +189,12 @@ export function MyRentalPage() {
           <div>
             <h2 className="text-lg font-bold text-ink">Property Changes</h2>
             <p className="mt-1 text-sm text-ink-secondary">
-              Request owner permission before installing, removing, or altering anything.
+              Request owner permission before installing, removing, or altering anything. Changes
+              require mutual agreement and Owner final approval.
             </p>
           </div>
           <Button onClick={() => navigate(paths.propertyChanges)}>
-            {changeRequests.length ? 'Open Conversation' : 'Talk with Owner'}
+            {changeRequests.length ? 'View Requests' : 'Request a Change'}
           </Button>
         </div>
         {changeRequests.length ? (
@@ -173,6 +209,28 @@ export function MyRentalPage() {
           </ul>
         ) : null}
       </Card>
+
+      <ExtensionRequestModal
+        open={extensionOpen}
+        currentMoveOut={access?.moveOut}
+        saving={extensionSaving}
+        error={extensionError}
+        onClose={() => setExtensionOpen(false)}
+        onSubmit={async (payload) => {
+          if (!access?.tenancyId) return
+          setExtensionSaving(true)
+          setExtensionError('')
+          try {
+            await createExtensionRequest(access.tenancyId, payload)
+            await refreshUser()
+            setExtensionOpen(false)
+          } catch (err) {
+            setExtensionError(getErrorMessage(err, 'Unable to send extension request'))
+          } finally {
+            setExtensionSaving(false)
+          }
+        }}
+      />
     </div>
   )
 }

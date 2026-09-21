@@ -10,12 +10,18 @@ import { useAppPaths } from '@/hooks/useAppPaths'
 import { getErrorMessage } from '@/services/api'
 import {
   ApprovedChangesSection,
+  ConditionReviewSection,
   RoomHandoverContext,
 } from '@/components/handover/HandoverReviewSections'
 import { changesForRoom } from '@/lib/handoverUi'
 import { getInspection, updateInspectionStep } from '@/services/inspection.service'
-import { listChangeRequests } from '@/services/handover.service'
-import type { InspectionDetail, InspectionItem, PropertyChangeRequest } from '@/types'
+import { listChangeRequests, listConditions } from '@/services/handover.service'
+import type {
+  InspectionDetail,
+  InspectionItem,
+  PropertyChangeRequest,
+  TenancyCondition,
+} from '@/types'
 
 type WizardStep =
   | { kind: 'room'; roomId: string; roomName: string }
@@ -33,6 +39,7 @@ export function InspectionWizardPage() {
   const [error, setError] = useState('')
   const [savingStep, setSavingStep] = useState(false)
   const [approvedChanges, setApprovedChanges] = useState<PropertyChangeRequest[]>([])
+  const [handoverConditions, setHandoverConditions] = useState<TenancyCondition[]>([])
 
   const load = useCallback(async () => {
     if (!inspectionId) return
@@ -42,12 +49,16 @@ export function InspectionWizardPage() {
       setDetail(data)
       setStepIndex(data.inspection.currentStepIndex || 0)
       if (data.inspection.type === 'MOVE_OUT') {
-        const changeData = await listChangeRequests(data.inspection.tenancyId).catch(() => null)
+        const [changeData, conditionData] = await Promise.all([
+          listChangeRequests(data.inspection.tenancyId).catch(() => null),
+          listConditions(data.inspection.tenancyId).catch(() => null),
+        ])
         setApprovedChanges(
           (changeData?.requests || []).filter((r) =>
-            ['APPROVED', 'COMPLETED'].includes(r.status),
+            ['AUTHORIZED', 'APPROVED', 'COMPLETED'].includes(r.status),
           ),
         )
+        setHandoverConditions(conditionData?.conditions || [])
       }
     } catch (err) {
       setError(getErrorMessage(err, 'Unable to load inspection'))
@@ -190,6 +201,22 @@ export function InspectionWizardPage() {
       </Card>
 
       <div className="space-y-6">
+        {isMoveOut && stepIndex === 0 ? (
+          handoverConditions.length > 0 ? (
+            <ConditionReviewSection
+              conditions={handoverConditions}
+              isOwner={false}
+            />
+          ) : (
+            <Card>
+              <h2 className="text-lg font-bold text-ink">No Additional Handover Conditions</h2>
+              <p className="mt-2 text-sm text-ink-secondary">
+                No additional property-specific conditions were recorded for this tenancy. Continue
+                with Move-Out Inspection, comparison, and review.
+              </p>
+            </Card>
+          )
+        ) : null}
         {isMoveOut && approvedChanges.length > 0 && currentStep?.kind !== 'room' ? (
           <ApprovedChangesSection
             title="Approved Mid-Tenancy Change"

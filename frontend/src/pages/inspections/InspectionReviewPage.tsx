@@ -149,6 +149,16 @@ export function InspectionReviewPage() {
           { label: 'Existing Issues', value: String(review.issues.length) },
           { label: 'Meter Readings', value: String(review.progress.meterCount) },
           { label: 'Keys / Access Items', value: String(review.progress.accessItemCount) },
+          ...(isMoveOut && review.readiness
+            ? [
+                { label: 'Conditions Reviewed', value: review.readiness.conditionsReviewed },
+                { label: 'Approved Changes Reviewed', value: review.readiness.approvedChangesReviewed },
+                { label: 'Condition Changes', value: String(review.readiness.conditionChanges) },
+                { label: 'Potential Damage', value: String(review.readiness.potentialDamage) },
+                { label: 'Missing Items', value: String(review.readiness.missingItems) },
+                { label: 'Needs Review', value: String(review.readiness.needsReview) },
+              ]
+            : []),
         ].map((stat) => (
           <Card key={stat.label}>
             <p className="text-sm text-ink-muted">{stat.label}</p>
@@ -156,6 +166,16 @@ export function InspectionReviewPage() {
           </Card>
         ))}
       </div>
+
+      {isMoveOut && review.readiness?.hasNoSpecialConditions ? (
+        <Card>
+          <h2 className="font-bold text-ink">No Additional Handover Conditions</h2>
+          <p className="mt-2 text-sm text-ink-secondary">
+            No additional property-specific conditions or approved mid-tenancy changes were recorded
+            for this tenancy. Continue with inspection comparison after submit.
+          </p>
+        </Card>
+      ) : null}
 
       {review.incomplete.length > 0 ? (
         <Card>

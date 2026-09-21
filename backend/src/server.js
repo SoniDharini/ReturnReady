@@ -1,6 +1,9 @@
 import 'dotenv/config';
 import app from './app.js';
 import { connectDB } from './config/db.js';
+import { startMoveOutReminderScheduler } from './services/moveOutReminder.service.js';
+import { getClientBaseUrl } from './utils/invitationUrl.js';
+
 
 const PORT = Number(process.env.PORT) || 5000;
 
@@ -19,9 +22,21 @@ async function start() {
     process.exit(1);
   }
 
+  if (process.env.DISABLE_MOVE_OUT_REMINDERS !== 'true') {
+    startMoveOutReminderScheduler();
+  }
+
+  const clientBaseUrl = getClientBaseUrl();
+  if (!clientBaseUrl) {
+    console.error('CLIENT_URL is not configured for invitation URL generation.');
+  }
+
   const server = app.listen(PORT, () => {
     console.log(`ReturnReady API listening on http://localhost:${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+    if (clientBaseUrl) {
+      console.log(`Invitation links will use: ${clientBaseUrl}/invite/<token>`);
+    }
   });
 
   server.on('error', (error) => {

@@ -10,6 +10,7 @@ import {
   complianceSchema,
   conditionSchema,
   conditionUpdateSchema,
+  declineConditionsSchema,
   rejectChangeSchema,
 } from '../validators/handover.validator.js';
 import { validateBody } from '../validators/resource.validator.js';
@@ -57,6 +58,11 @@ router.post(
   handoverController.approveChangeRequest,
 );
 router.post(
+  '/change-requests/:requestId/send-conditions',
+  validateBody(approveChangeSchema),
+  handoverController.sendOwnerConditions,
+);
+router.post(
   '/change-requests/:requestId/reject',
   validateBody(rejectChangeSchema),
   handoverController.rejectChangeRequest,
@@ -68,6 +74,12 @@ router.post(
 );
 router.post('/change-requests/:requestId/cancel', handoverController.cancelChangeRequest);
 router.post('/change-requests/:requestId/accept-conditions', handoverController.acceptOwnerConditions);
+router.post(
+  '/change-requests/:requestId/decline-conditions',
+  validateBody(declineConditionsSchema),
+  handoverController.declineOwnerConditions,
+);
+router.post('/change-requests/:requestId/final-approve', handoverController.finalApproveChangeRequest);
 router.post(
   '/change-requests/:requestId/compliance',
   validateBody(changeComplianceSchema),

@@ -2,7 +2,7 @@ import { Badge } from '@/components/ui/Badge'
 import { Card } from '@/components/ui/Card'
 import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
-import { COMPLIANCE_OPTIONS, changeStatusLabel } from '@/lib/handoverUi'
+import { COMPLIANCE_OPTIONS, changeStatusLabel, ownerConditionList, tenantCommitmentList } from '@/lib/handoverUi'
 import { formatDisplayDate } from '@/lib/tenancyContext'
 import { resolveMediaUrl } from '@/services/property.service'
 import type { ComplianceStatus, Deduction, PropertyChangeRequest, TenancyCondition } from '@/types'
@@ -52,22 +52,42 @@ export function ApprovedChangesSection({
                   {changeStatusLabel(request.status)}
                 </Badge>
               </div>
-              {request.reviewedAt ? (
-                <p className="mt-1 text-ink-muted">Approved: {formatDisplayDate(request.reviewedAt)}</p>
+              {request.reviewedAt || request.finalApprovedAt || request.authorizedAt ? (
+                <p className="mt-1 text-ink-muted">
+                  Approved:{' '}
+                  {formatDisplayDate(
+                    request.finalApprovedAt || request.authorizedAt || request.reviewedAt,
+                  )}
+                </p>
               ) : null}
-            {request.ownerConditions ? (
-              <p className="mt-2 text-ink-secondary">
-                Owner condition: {request.ownerConditions}
-              </p>
-            ) : null}
-            {request.ownerConditions ? (
-              <p className="mt-1 text-ink-muted">
-                Tenant accepted conditions:{' '}
-                {request.tenantConditionsAccepted
-                  ? `Yes${request.tenantConditionsAcceptedAt ? ` · ${formatDisplayDate(request.tenantConditionsAcceptedAt)}` : ''}`
-                  : 'No'}
-              </p>
-            ) : null}
+              {tenantCommitmentList(request).length ? (
+                <div className="mt-2">
+                  <p className="font-medium text-ink">Tenant Commitments</p>
+                  <ul className="mt-1 space-y-1 text-ink-secondary">
+                    {tenantCommitmentList(request).map((item, index) => (
+                      <li key={item.id || index}>• {item.text}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {ownerConditionList(request).length ? (
+                <div className="mt-2">
+                  <p className="font-medium text-ink">Owner Conditions</p>
+                  <ul className="mt-1 space-y-1 text-ink-secondary">
+                    {ownerConditionList(request).map((item, index) => (
+                      <li key={item.id || index}>• {item.text}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {ownerConditionList(request).length || request.ownerConditions ? (
+                <p className="mt-1 text-ink-muted">
+                  Tenant accepted conditions:{' '}
+                  {request.tenantConditionsAccepted
+                    ? `Yes${request.tenantConditionsAcceptedAt ? ` · ${formatDisplayDate(request.tenantConditionsAcceptedAt)}` : ''}`
+                    : 'No'}
+                </p>
+              ) : null}
               <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-ink-muted">
                 Move-Out: {COMPLIANCE_OPTIONS.find((o) => o.value === request.complianceStatus)?.label ||
                   request.complianceStatus ||
@@ -319,8 +339,22 @@ export function RoomHandoverContext({
       {requests.map((request) => (
         <div key={request.id} className="mt-3 rounded-xl bg-white px-3 py-2 text-sm">
           <p className="font-semibold text-ink">Approved Change: {request.title}</p>
-          {request.ownerConditions ? (
-            <p className="mt-1 text-ink-secondary">Owner Condition: {request.ownerConditions}</p>
+          {(request.tenantCommitments || []).length ? (
+            <ul className="mt-1 text-ink-secondary">
+              {request.tenantCommitments!.map((item, index) => (
+                <li key={item.id || index}>Tenant: {item.text}</li>
+              ))}
+            </ul>
+          ) : null}
+          {(request.ownerConditionItems || []).length || request.ownerConditions ? (
+            <ul className="mt-1 text-ink-secondary">
+              {(request.ownerConditionItems?.length
+                ? request.ownerConditionItems
+                : [{ text: request.ownerConditions || '' }]
+              ).map((item, index) =>
+                item.text ? <li key={item.id || index}>Owner: {item.text}</li> : null,
+              )}
+            </ul>
           ) : null}
         </div>
       ))}

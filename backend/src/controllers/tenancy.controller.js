@@ -1,4 +1,5 @@
 import * as tenancyService from '../services/tenancy.service.js';
+import * as moveOutContextService from '../services/moveOutContext.service.js';
 import { getRefreshCookieOptions } from '../utils/generateToken.js';
 
 export async function list(req, res, next) {
@@ -19,13 +20,25 @@ export async function getOne(req, res, next) {
   }
 }
 
+export async function getMoveOutContext(req, res, next) {
+  try {
+    const data = await moveOutContextService.buildMoveOutContext(req.user, req.params.id);
+    return res.status(200).json({ success: true, data });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 export async function create(req, res, next) {
   try {
     const tenancy = await tenancyService.createTenancyInvite(req.user, req.body);
     return res.status(201).json({
       success: true,
-      message: 'Invitation sent successfully',
-      data: { tenancy },
+      message: 'Tenant invitation created successfully.',
+      data: {
+        tenancy,
+        invitationUrl: tenancy.invitationUrl,
+      },
     });
   } catch (error) {
     return next(error);
@@ -85,7 +98,10 @@ export async function resendInvite(req, res, next) {
     return res.status(200).json({
       success: true,
       message: 'Invitation resent',
-      data: { tenancy },
+      data: {
+        tenancy,
+        invitationUrl: tenancy.invitationUrl,
+      },
     });
   } catch (error) {
     return next(error);

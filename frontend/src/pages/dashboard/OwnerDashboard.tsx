@@ -115,6 +115,27 @@ export function OwnerDashboard() {
 
       {error ? <p className="text-sm text-danger">{error}</p> : null}
 
+      {tenancies.some((t) => t.pendingExtension) ? (
+        <Card className="border-warning bg-warning-bg/30">
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+            Action Required
+          </p>
+          <h2 className="mt-2 text-lg font-bold text-ink">Tenancy extension request pending</h2>
+          <p className="mt-1 text-sm text-ink-secondary">
+            A tenant asked to extend their Move-Out date. Review the request on the tenancy page.
+          </p>
+          <Button
+            className="mt-4"
+            onClick={() => {
+              const pending = tenancies.find((t) => t.pendingExtension)
+              if (pending) navigate(paths.tenancy(pending.id))
+            }}
+          >
+            Review Extension Request
+          </Button>
+        </Card>
+      ) : null}
+
       {pendingChanges.length > 0 ? (
         <Card className="border-warning bg-warning-bg/30">
           <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
@@ -127,9 +148,11 @@ export function OwnerDashboard() {
           </h2>
           <Button
             className="mt-4"
-            onClick={() => navigate(paths.propertyChangeChat(pendingChanges[0]?.tenancyId))}
+            onClick={() => navigate(paths.changeRequest(pendingChanges[0].id))}
           >
-            Review Request
+            {pendingChanges[0]?.status === 'AWAITING_OWNER_FINAL_APPROVAL'
+              ? 'Give Final Approval'
+              : 'Review Request'}
           </Button>
         </Card>
       ) : null}
@@ -185,6 +208,11 @@ export function OwnerDashboard() {
                     <div>
                       <dt className="text-ink-muted">Expected Move-Out</dt>
                       <dd className="font-semibold text-ink">{formatDisplayDate(tenancy.moveOut)}</dd>
+                      {tenancy.moveOutTimeline?.label ? (
+                        <p className="mt-1 text-xs font-semibold text-ink-secondary">
+                          {tenancy.moveOutTimeline.label}
+                        </p>
+                      ) : null}
                     </div>
                     {tenancy.actualMoveOut ? (
                       <div>

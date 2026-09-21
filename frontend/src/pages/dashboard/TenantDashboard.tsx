@@ -4,12 +4,16 @@ import { PageHeader } from '@/components/shared/PageHeader'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
+import { TenancyDateCard } from '@/components/tenancy/TenancyDateCard'
+import { ExtensionRequestModal } from '@/components/tenancy/ExtensionRequestModal'
 import { useAuth } from '@/context/AuthContext'
 import { formatCurrency } from '@/lib/utils'
 import { appPaths } from '@/lib/paths'
 import { listTenancyInspections } from '@/services/inspection.service'
 import { listChangeRequests } from '@/services/handover.service'
+import { createExtensionRequest } from '@/services/tenancy.service'
 import { changeStatusLabel, requestHeadline } from '@/lib/handoverUi'
+import { getErrorMessage } from '@/services/api'
 import type { Inspection, PropertyChangeRequest } from '@/types'
 import {
   formatDisplayDate,
@@ -18,13 +22,16 @@ import {
 } from '@/lib/tenancyContext'
 
 export function TenantDashboard() {
-  const { user } = useAuth()
+  const { user, refreshUser } = useAuth()
   const navigate = useNavigate()
   const paths = appPaths('TENANT')
   const firstName = user?.name.split(' ')[0] || 'there'
   const access = user?.tenantAccess
   const [inspections, setInspections] = useState<Inspection[]>([])
   const [changeRequests, setChangeRequests] = useState<PropertyChangeRequest[]>([])
+  const [extensionOpen, setExtensionOpen] = useState(false)
+  const [extensionSaving, setExtensionSaving] = useState(false)
+  const [extensionError, setExtensionError] = useState('')
 
   useEffect(() => {
     if (!access?.tenancyId) return
@@ -44,6 +51,9 @@ export function TenantDashboard() {
         status: access.status === 'ACTIVE' ? 'Active' : access.status,
         actualMoveOut: access.actualMoveOut,
         moveOutReason: access.moveOutReason,
+        moveOutTimeline: access.moveOutTimeline,
+        moveOut: access.moveOut,
+        propertyName: access.propertyName,
       }
     : null
 
@@ -54,6 +64,23 @@ export function TenantDashboard() {
       <PageHeader
         title={`Welcome, ${firstName}`}
         description="Your rental and anything that needs your attention."
+      />
+
+      <TenancyDateCard
+        role="TENANT"
+        moveIn={access?.moveIn}
+        expectedMoveOut={access?.moveOut}
+        actualMoveOut={access?.actualMoveOut}
+        timeline={access?.moveOutTimeline}
+        pendingExtension={access?.pendingExtension}
+        latestRejectedExtension={access?.latestRejectedExtension}
+        onRequestExtension={() => setExtensionOpen(true)}
+        onViewTenancy={() => navigate(paths.rental)}
+        onViewMoveOut={
+          action.path && action.label?.includes('Move-Out')
+            ? () => navigate(action.path!)
+            : undefined
+        }
       />
 
       <Card>
@@ -114,30 +141,67 @@ export function TenantDashboard() {
       </Card>
 
       {(() => {
-        const featured =
+        const actionRequest =
+          changeRequests.find((r) => r.status === 'AWAITING_TENANT_ACCEPTANCE') ||
+          changeRequests.find((r) => r.status === 'APPROVED_PENDING_TENANT_ACCEPTANCE') ||
+          changeRequests.find((r) => r.status === 'AWAITING_OWNER_FINAL_APPROVAL') ||
+          changeRequests.find((r) => r.status === 'AUTHORIZED' || r.status === 'APPROVED') ||
           changeRequests.find((r) => r.status === 'PENDING') ||
-          changeRequests.find((r) => r.status === 'APPROVED') ||
           changeRequests[0]
-        if (!featured) return null
+        if (!actionRequest) return null
+        const needsAccept =
+          actionRequest.status === 'AWAITING_TENANT_ACCEPTANCE' ||
+          actionRequest.status === 'APPROVED_PENDING_TENANT_ACCEPTANCE'
+        const waitingFinal = actionRequest.status === 'AWAITING_OWNER_FINAL_APPROVAL'
+        const authorized =
+          actionRequest.status === 'AUTHORIZED' || actionRequest.status === 'APPROVED'
         return (
           <Card>
             <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
               Property Change Request
             </p>
-            <h3 className="mt-2 text-lg font-bold text-ink">{requestHeadline(featured)}</h3>
+            <h3 className="mt-2 text-lg font-bold text-ink">{requestHeadline(actionRequest)}</h3>
             <p className="mt-1 text-sm text-ink-secondary">
-              Status: {changeStatusLabel(featured.status)}
+              {needsAccept
+                ? 'Review Owner conditions for your request.'
+                : waitingFinal
+                  ? 'Conditions accepted — waiting for Owner final approval.'
+                  : authorized
+                    ? 'Property Change Approved ✓'
+                    : `Status: ${changeStatusLabel(actionRequest.status)}`}
             </p>
             <Button
               className="mt-4"
-              variant="secondary"
-              onClick={() => navigate(paths.propertyChanges)}
+              variant={needsAccept ? 'primary' : 'secondary'}
+              onClick={() => navigate(paths.changeRequest(actionRequest.id))}
             >
-              View Request
+              {needsAccept ? 'Review Conditions' : 'View Request'}
             </Button>
           </Card>
         )
       })()}
+
+      <ExtensionRequestModal
+        open={extensionOpen}
+        currentMoveOut={access?.moveOut}
+        saving={extensionSaving}
+        error={extensionError}
+        onClose={() => setExtensionOpen(false)}
+        onSubmit={async (payload) => {
+          if (!access?.tenancyId) return
+          setExtensionSaving(true)
+          setExtensionError('')
+          try {
+            await createExtensionRequest(access.tenancyId, payload)
+            await refreshUser()
+            setExtensionOpen(false)
+          } catch (err) {
+            setExtensionError(getErrorMessage(err, 'Unable to send extension request'))
+          } finally {
+            setExtensionSaving(false)
+          }
+        }}
+      />
     </div>
   )
 }

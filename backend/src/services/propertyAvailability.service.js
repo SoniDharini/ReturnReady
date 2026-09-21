@@ -67,7 +67,7 @@ export async function assertPropertyAvailableForTenancy(propertyId, session = nu
   if (existing) {
     throw new ApiError(
       409,
-      'This property already has an active tenant. Complete the current tenancy before assigning another tenant.',
+      'This property already has an active or reserved tenancy. Complete or cancel the current tenancy before assigning another Tenant.',
     );
   }
 }
@@ -129,7 +129,27 @@ export async function assertOwnerPropertyAccess(ownerId, propertyId) {
   return property;
 }
 
+function supportsTransactions() {
+  const type = mongoose.connection?.client?.topology?.description?.type;
+  return type === 'ReplicaSetWithPrimary' || type === 'Sharded' || type === 'LoadBalanced';
+}
+
+function isTransactionUnsupported(error) {
+  const message = String(error?.message || '');
+  return (
+    error?.code === 20 ||
+    error?.codeName === 'IllegalOperation' ||
+    message.includes('Transaction numbers are only allowed') ||
+    message.includes('replica set member or mongos')
+  );
+}
+
+/** Use a transaction when MongoDB supports it; otherwise run the work without a session. */
 export async function withOptionalTransaction(fn) {
+  if (!supportsTransactions()) {
+    return fn(null);
+  }
+
   const session = await mongoose.startSession();
   try {
     let result;
@@ -137,6 +157,9 @@ export async function withOptionalTransaction(fn) {
       result = await fn(session);
     });
     return result;
+  } catch (error) {
+    if (!isTransactionUnsupported(error)) throw error;
+    return fn(null);
   } finally {
     session.endSession();
   }

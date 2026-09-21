@@ -174,14 +174,38 @@ export function getOwnerAction(
   ) {
     return {
       kind: 'action',
-      title: 'Move-out in progress',
-      description: 'Continue the property handover inspection.',
-      label: 'Continue Handover',
+      title: tenancy.moveOutTimeline?.isOverdue
+        ? 'Move-Out Date Passed'
+        : tenancy.moveOutTimeline?.isMoveOutToday
+          ? 'Move-Out Today'
+          : 'Move-out in progress',
+      description: tenancy.moveOutTimeline?.label
+        ? `${tenancy.moveOutTimeline.label}. Continue the property handover inspection.`
+        : 'Continue the property handover inspection.',
+      label: 'Continue Move-Out',
       path: moveOut ? paths.inspectionWizard(moveOut.id) : paths.tenancy(tenancy.id),
     }
   }
 
   if (tenancy.stage === 'active' || tenancy.occupancyStatus === 'CURRENTLY_STAYING') {
+    const timeline = tenancy.moveOutTimeline
+    if (timeline?.isMoveOutToday || timeline?.isOverdue || timeline?.moveOutReminderState === 'FIVE_DAYS') {
+      return {
+        kind: 'action',
+        title: timeline.isOverdue
+          ? 'Move-Out Date Passed'
+          : timeline.isMoveOutToday
+            ? 'Today is Tenant Move-Out Day'
+            : 'Tenant Move-Out approaching',
+        description: timeline.isOverdue
+          ? `${tenancy.tenantName} was expected to move out on ${formatDisplayDate(tenancy.moveOut)}. The handover has not yet been completed.`
+          : timeline.isMoveOutToday
+            ? `${tenancy.tenantName} is scheduled to move out of ${tenancy.propertyName} today.`
+            : `${tenancy.tenantName} is expected to move out of ${tenancy.propertyName} on ${formatDisplayDate(tenancy.moveOut)}. Prepare for the property handover and Move-Out Inspection.`,
+        label: moveOut ? 'Continue Move-Out' : 'Start Move-Out',
+        path: paths.tenancy(tenancy.id),
+      }
+    }
     return {
       kind: 'info',
       title: 'No action required',
@@ -201,10 +225,14 @@ export function getOwnerAction(
 }
 
 export function getTenantAction(
-  tenancy: Pick<
+  tenancy: (Pick<
     Tenancy,
     'id' | 'stage' | 'occupancyStatus' | 'status' | 'actualMoveOut' | 'moveOutReason'
-  > | null,
+  > & {
+    moveOutTimeline?: Tenancy['moveOutTimeline']
+    moveOut?: string
+    propertyName?: string
+  }) | null,
   inspections: Inspection[],
   paths: {
     inspectionApproval: (id?: string) => string
@@ -255,9 +283,9 @@ export function getTenantAction(
       : ''
     return {
       kind: 'action',
-      title: 'Move-out started',
+      title: 'Move-Out in Progress',
       description: `Your property handover has been started. ${dateNote}`.trim(),
-      label: moveOut ? 'Complete Move-Out Inspection' : 'View Rental',
+      label: moveOut ? 'Continue Inspection' : 'View Rental',
       path: moveOut ? paths.inspectionWizard(moveOut.id) : paths.rental,
     }
   }
@@ -269,6 +297,23 @@ export function getTenantAction(
       description: 'Review proposed deductions from your security deposit.',
       label: 'View Proposed Deductions',
       path: paths.settlement(tenancy.id),
+    }
+  }
+
+  const timeline = tenancy.moveOutTimeline
+  if (timeline?.isMoveOutToday || timeline?.isOverdue || timeline?.moveOutReminderState === 'FIVE_DAYS') {
+    return {
+      kind: 'action',
+      title: timeline.isOverdue
+        ? 'Move-Out Due'
+        : timeline.isMoveOutToday
+          ? 'Today is Your Move-Out Day'
+          : 'Move-Out in 5 Days',
+      description: timeline.isMoveOutToday
+        ? `Your scheduled Move-Out date for ${tenancy.propertyName || 'your property'} is today.`
+        : timeline.label || 'Prepare for the property handover and Move-Out Inspection.',
+      label: moveOut ? 'Continue Move-Out Inspection' : 'View Rental',
+      path: moveOut ? paths.inspectionWizard(moveOut.id) : paths.rental,
     }
   }
 

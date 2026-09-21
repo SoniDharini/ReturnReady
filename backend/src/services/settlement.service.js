@@ -162,7 +162,7 @@ export async function getSettlement(user, tenancyId) {
       conditionsAccepted: Boolean(tenancy.conditionsAccepted),
       conditionsAcceptedAt: tenancy.conditionsAcceptedAt,
       approvedChanges: changeRequests.filter((r) =>
-        ['APPROVED', 'COMPLETED'].includes(r.status),
+        ['AUTHORIZED', 'APPROVED', 'COMPLETED'].includes(r.status),
       ),
       rejectedChanges: changeRequests.filter((r) => r.status === 'REJECTED'),
     },
@@ -427,7 +427,7 @@ export async function generateFinalReport(user, tenancyId) {
     conditions: conditions.map((c) => c.toJSON()),
     conditionsAcceptedAt: tenancy.conditionsAcceptedAt,
     approvedChanges: changeRequests
-      .filter((r) => ['APPROVED', 'COMPLETED'].includes(r.status))
+      .filter((r) => ['AUTHORIZED', 'APPROVED', 'COMPLETED'].includes(r.status))
       .map((r) => r.toJSON()),
     rejectedChanges: changeRequests
       .filter((r) => r.status === 'REJECTED')
@@ -447,6 +447,17 @@ export async function generateFinalReport(user, tenancyId) {
     doc.text(`Move-In: ${tenancy.moveIn}`);
     doc.text(`Expected Move-Out: ${tenancy.moveOut}`);
     if (tenancy.actualMoveOut) doc.text(`Actual Move-Out: ${tenancy.actualMoveOut}`);
+    if (Array.isArray(tenancy.dateHistory) && tenancy.dateHistory.length) {
+      doc.moveDown(0.5);
+      doc.text('Move-Out Date History', { underline: true });
+      for (const entry of tenancy.dateHistory.filter(
+        (e) => e.field === 'moveOut' || e.field === 'actualMoveOut',
+      )) {
+        doc.text(
+          `- ${entry.field}: ${entry.oldValue || '—'} → ${entry.newValue || '—'} (${entry.reason || 'Updated'})`,
+        );
+      }
+    }
     doc.moveDown();
     doc.text('Settlement Summary', { underline: true });
     doc.text(`Security Deposit: ₹${tenancy.deposit}`);
@@ -494,7 +505,28 @@ export async function generateFinalReport(user, tenancyId) {
         doc.text(`  Request date: ${new Date(change.requestedAt).toLocaleString()}`);
       }
       if (change.ownerResponse) doc.text(`  Owner response: ${change.ownerResponse}`);
-      if (change.ownerConditions) doc.text(`  Approval conditions: ${change.ownerConditions}`);
+      if (change.tenantCommitments?.length) {
+        for (const commitment of change.tenantCommitments) {
+          doc.text(`  Tenant commitment: ${commitment.text}`);
+        }
+      }
+      if (change.ownerConditionItems?.length) {
+        for (const condition of change.ownerConditionItems) {
+          doc.text(`  Owner condition: ${condition.text}`);
+        }
+      } else if (change.ownerConditions) {
+        doc.text(`  Owner condition: ${change.ownerConditions}`);
+      }
+      if (change.tenantConditionsAcceptedAt) {
+        doc.text(
+          `  Tenant acceptance: ${new Date(change.tenantConditionsAcceptedAt).toLocaleString()}`,
+        );
+      }
+      if (change.finalApprovedAt || change.authorizedAt) {
+        doc.text(
+          `  Owner final approval: ${new Date(change.finalApprovedAt || change.authorizedAt).toLocaleString()}`,
+        );
+      }
       if (change.ownerNotes && change.status === 'REJECTED') {
         doc.text(`  Rejection reason: ${change.ownerNotes}`);
       }
@@ -502,7 +534,7 @@ export async function generateFinalReport(user, tenancyId) {
     }
     doc.moveDown();
     doc.text('Move-Out Compliance', { underline: true });
-    if (!conditions.length && !changeRequests.filter((r) => ['APPROVED', 'COMPLETED'].includes(r.status)).length) {
+    if (!conditions.length && !changeRequests.filter((r) => ['AUTHORIZED', 'APPROVED', 'COMPLETED'].includes(r.status)).length) {
       doc.text('No handover conditions or approved changes to review.');
     }
     for (const condition of conditions) {
@@ -518,7 +550,7 @@ export async function generateFinalReport(user, tenancyId) {
       if (related) doc.text(`  Related deduction: ${related.title} — ₹${related.amount}`);
     }
     for (const change of changeRequests.filter((r) =>
-      ['APPROVED', 'COMPLETED'].includes(r.status),
+      ['AUTHORIZED', 'APPROVED', 'COMPLETED'].includes(r.status),
     )) {
       const related = deductions.find(
         (d) => d.propertyChangeRequestId?.toString?.() === change._id.toString(),

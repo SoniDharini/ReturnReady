@@ -14,14 +14,36 @@ export const CHANGE_TYPES = [
   'OTHER',
 ];
 
+/** Canonical + legacy statuses kept for existing records */
 export const CHANGE_REQUEST_STATUSES = [
   'PENDING',
-  'APPROVED_PENDING_TENANT_ACCEPTANCE',
-  'APPROVED',
+  'AWAITING_TENANT_ACCEPTANCE',
+  'APPROVED_PENDING_TENANT_ACCEPTANCE', // legacy alias of AWAITING_TENANT_ACCEPTANCE
+  'AWAITING_OWNER_FINAL_APPROVAL',
+  'AUTHORIZED',
+  'APPROVED', // legacy alias of AUTHORIZED
   'REJECTED',
+  'CONDITIONS_DECLINED',
   'CANCELLED',
   'COMPLETED',
 ];
+
+export const AUTHORIZED_CHANGE_STATUSES = ['AUTHORIZED', 'APPROVED', 'COMPLETED'];
+
+export const AWAITING_TENANT_ACCEPTANCE_STATUSES = [
+  'AWAITING_TENANT_ACCEPTANCE',
+  'APPROVED_PENDING_TENANT_ACCEPTANCE',
+];
+
+export const OWNER_ACTION_REQUIRED_STATUSES = ['PENDING', 'AWAITING_OWNER_FINAL_APPROVAL'];
+
+export function isAuthorizedChangeStatus(status) {
+  return AUTHORIZED_CHANGE_STATUSES.includes(status);
+}
+
+export function isAwaitingTenantAcceptance(status) {
+  return AWAITING_TENANT_ACCEPTANCE_STATUSES.includes(status);
+}
 
 const evidenceSchema = new mongoose.Schema(
   {
@@ -30,6 +52,22 @@ const evidenceSchema = new mongoose.Schema(
     caption: { type: String, trim: true, default: '' },
     uploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     uploadedAt: { type: Date, default: Date.now },
+  },
+  { _id: true },
+);
+
+const commitmentSchema = new mongoose.Schema(
+  {
+    text: { type: String, required: true, trim: true, maxlength: 500 },
+    details: { type: String, trim: true, default: '', maxlength: 1000 },
+  },
+  { _id: true },
+);
+
+const ownerConditionItemSchema = new mongoose.Schema(
+  {
+    text: { type: String, required: true, trim: true, maxlength: 500 },
+    details: { type: String, trim: true, default: '', maxlength: 1000 },
   },
   { _id: true },
 );
@@ -81,8 +119,11 @@ const propertyChangeRequestSchema = new mongoose.Schema(
     requestedAction: { type: String, trim: true, default: '' },
     beforeState: { type: String, trim: true, default: '' },
     requestedState: { type: String, trim: true, default: '' },
+    tenantCommitments: { type: [commitmentSchema], default: [] },
+    ownerConditionItems: { type: [ownerConditionItemSchema], default: [] },
     evidence: { type: [evidenceSchema], default: [] },
     completionEvidence: { type: [evidenceSchema], default: [] },
+    completionNotes: { type: String, trim: true, default: '' },
     status: {
       type: String,
       enum: CHANGE_REQUEST_STATUSES,
@@ -91,9 +132,22 @@ const propertyChangeRequestSchema = new mongoose.Schema(
     },
     ownerResponse: { type: String, trim: true, default: '' },
     ownerNotes: { type: String, trim: true, default: '' },
+    /** Legacy free-text conditions; kept in sync from ownerConditionItems */
     ownerConditions: { type: String, trim: true, default: '' },
+    rejectionReason: { type: String, trim: true, default: '' },
     tenantConditionsAccepted: { type: Boolean, default: false },
     tenantConditionsAcceptedAt: { type: Date, default: null },
+    tenantConditionsAcceptedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    finalApprovedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    finalApprovedAt: { type: Date, default: null },
     authorizedAt: { type: Date, default: null },
     reviewedBy: {
       type: mongoose.Schema.Types.ObjectId,
@@ -140,6 +194,23 @@ propertyChangeRequestSchema.index({ tenancyId: 1, status: 1 });
 propertyChangeRequestSchema.index({ ownerId: 1, status: 1 });
 propertyChangeRequestSchema.index({ tenantId: 1, status: 1 });
 
+function mapEvidence(list = []) {
+  return list.map((item) => ({
+    id: item._id?.toString?.() || item.id,
+    fileUrl: item.fileUrl,
+    caption: item.caption,
+    uploadedAt: item.uploadedAt,
+  }));
+}
+
+function mapCommitments(list = []) {
+  return list.map((item) => ({
+    id: item._id?.toString?.() || item.id,
+    text: item.text,
+    details: item.details || '',
+  }));
+}
+
 propertyChangeRequestSchema.set('toJSON', {
   transform(_doc, ret) {
     ret.id = ret._id.toString();
@@ -148,34 +219,28 @@ propertyChangeRequestSchema.set('toJSON', {
     ret.tenantId = ret.tenantId?.toString?.() || ret.tenantId;
     ret.ownerId = ret.ownerId?.toString?.() || ret.ownerId;
     ret.reviewedBy = ret.reviewedBy?.toString?.() || ret.reviewedBy;
-    if (Array.isArray(ret.evidence)) {
-      ret.evidence = ret.evidence.map((item) => ({
-        id: item._id?.toString?.() || item.id,
-        fileUrl: item.fileUrl,
-        caption: item.caption,
-        uploadedAt: item.uploadedAt,
-      }));
-    }
-    if (Array.isArray(ret.completionEvidence)) {
-      ret.completionEvidence = ret.completionEvidence.map((item) => ({
-        id: item._id?.toString?.() || item.id,
-        fileUrl: item.fileUrl,
-        caption: item.caption,
-        uploadedAt: item.uploadedAt,
-      }));
-    }
-    if (Array.isArray(ret.complianceEvidence)) {
-      ret.complianceEvidence = ret.complianceEvidence.map((item) => ({
-        id: item._id?.toString?.() || item.id,
-        fileUrl: item.fileUrl,
-        caption: item.caption,
-        uploadedAt: item.uploadedAt,
-      }));
-    }
     ret.approvedBy = ret.approvedBy?.toString?.() || ret.approvedBy;
     ret.rejectedBy = ret.rejectedBy?.toString?.() || ret.rejectedBy;
+    ret.finalApprovedBy = ret.finalApprovedBy?.toString?.() || ret.finalApprovedBy;
+    ret.tenantConditionsAcceptedBy =
+      ret.tenantConditionsAcceptedBy?.toString?.() || ret.tenantConditionsAcceptedBy;
     ret.complianceReviewedBy = ret.complianceReviewedBy?.toString?.() || ret.complianceReviewedBy;
-    ret.authorized = ['APPROVED', 'COMPLETED'].includes(ret.status);
+    ret.evidence = mapEvidence(ret.evidence);
+    ret.completionEvidence = mapEvidence(ret.completionEvidence);
+    ret.complianceEvidence = mapEvidence(ret.complianceEvidence);
+    ret.tenantCommitments = mapCommitments(ret.tenantCommitments);
+    ret.ownerConditionItems = mapCommitments(ret.ownerConditionItems);
+    if (
+      (!ret.ownerConditionItems || ret.ownerConditionItems.length === 0) &&
+      ret.ownerConditions
+    ) {
+      ret.ownerConditionItems = String(ret.ownerConditions)
+        .split(/\n+/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((text) => ({ text, details: '' }));
+    }
+    ret.authorized = isAuthorizedChangeStatus(ret.status);
     delete ret._id;
     delete ret.__v;
     return ret;
