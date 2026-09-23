@@ -62,6 +62,14 @@ const tenancySchema = new mongoose.Schema(
       default: 'invitation',
     },
     actualMoveOut: { type: String, default: null },
+    completedAt: { type: Date, default: null },
+    handoverConfirmed: { type: Boolean, default: false },
+    handoverConfirmedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    handoverConfirmedAt: { type: Date, default: null },
     moveOutReason: { type: String, trim: true, default: '' },
     moveOutNotes: { type: String, trim: true, default: '' },
     occupancyStatus: {

@@ -27,6 +27,7 @@ export function TenantDashboard() {
   const paths = appPaths('TENANT')
   const firstName = user?.name.split(' ')[0] || 'there'
   const access = user?.tenantAccess
+  const readOnly = access?.status === 'CLOSED' || Boolean(access?.readOnly)
   const [inspections, setInspections] = useState<Inspection[]>([])
   const [changeRequests, setChangeRequests] = useState<PropertyChangeRequest[]>([])
   const [extensionOpen, setExtensionOpen] = useState(false)
@@ -63,8 +64,32 @@ export function TenantDashboard() {
     <div className="space-y-6">
       <PageHeader
         title={`Welcome, ${firstName}`}
-        description="Your rental and anything that needs your attention."
+        description={
+          readOnly
+            ? 'This tenancy is complete. You can review the history and final report. Active changes are closed.'
+            : 'Your rental and anything that needs your attention.'
+        }
       />
+
+      {readOnly ? (
+        <Card>
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+            Completed Tenancy
+          </p>
+          <h2 className="mt-2 text-lg font-bold text-ink">
+            Your tenancy for {access?.propertyName || 'this property'} has been completed.
+          </h2>
+          <p className="mt-2 text-sm text-ink-secondary">
+            Move-out: {formatDisplayDate(access?.actualMoveOut || access?.moveOut)}
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={() => navigate(paths.rental)}>
+              View Tenancy History
+            </Button>
+            <Button onClick={() => navigate(paths.reports)}>View Final Report</Button>
+          </div>
+        </Card>
+      ) : null}
 
       <TenancyDateCard
         role="TENANT"
@@ -72,9 +97,9 @@ export function TenantDashboard() {
         expectedMoveOut={access?.moveOut}
         actualMoveOut={access?.actualMoveOut}
         timeline={access?.moveOutTimeline}
-        pendingExtension={access?.pendingExtension}
-        latestRejectedExtension={access?.latestRejectedExtension}
-        onRequestExtension={() => setExtensionOpen(true)}
+        pendingExtension={readOnly ? null : access?.pendingExtension}
+        latestRejectedExtension={readOnly ? null : access?.latestRejectedExtension}
+        onRequestExtension={readOnly ? undefined : () => setExtensionOpen(true)}
         onViewTenancy={() => navigate(paths.rental)}
         onViewMoveOut={
           action.path && action.label?.includes('Move-Out')
@@ -90,7 +115,9 @@ export function TenantDashboard() {
             <h2 className="text-xl font-bold text-ink">{access?.propertyName || '—'}</h2>
             <p className="mt-1 text-sm text-ink-secondary">Owner: {access?.ownerName || '—'}</p>
           </div>
-          <Badge status="Active">{getOccupancyLabel(tenancyLike)}</Badge>
+          <Badge status={readOnly ? 'Completed' : 'Active'}>
+            {readOnly ? 'Completed' : getOccupancyLabel(tenancyLike)}
+          </Badge>
         </div>
         <dl className="mt-6 grid gap-4 text-sm sm:grid-cols-2">
           <div>
@@ -123,6 +150,7 @@ export function TenantDashboard() {
         ) : null}
       </Card>
 
+      {!readOnly ? (
       <Card className={action.kind === 'action' ? 'border-brand-200 bg-brand-50/40' : ''}>
         <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
           {action.kind === 'action' ? 'Action required' : 'Status'}
@@ -139,8 +167,9 @@ export function TenantDashboard() {
           </Button>
         )}
       </Card>
+      ) : null}
 
-      {(() => {
+      {!readOnly ? (() => {
         const actionRequest =
           changeRequests.find((r) => r.status === 'AWAITING_TENANT_ACCEPTANCE') ||
           changeRequests.find((r) => r.status === 'APPROVED_PENDING_TENANT_ACCEPTANCE') ||
@@ -179,7 +208,7 @@ export function TenantDashboard() {
             </Button>
           </Card>
         )
-      })()}
+      })() : null}
 
       <ExtensionRequestModal
         open={extensionOpen}

@@ -27,6 +27,9 @@ function assertTenant(user, tenancy) {
 
 async function requireTenancyAccess(user, tenancyId) {
   const tenancy = await getTenancyForUser(user, tenancyId);
+  if (tenancy.stage === 'complete' || tenancy.status === 'Completed') {
+    throw new ApiError(403, 'This tenancy is completed and is read-only');
+  }
   if (user.role === 'TENANT') {
     const access = await getTenantAccessForUser(user.id);
     if (!access || access.status !== 'ACTIVE') {

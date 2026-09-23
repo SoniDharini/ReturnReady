@@ -20,9 +20,14 @@ import { useAppPaths } from '@/hooks/useAppPaths'
 import { formatCondition } from '@/lib/utils'
 import { getErrorMessage } from '@/services/api'
 import { resolveInspectionImageUrl } from '@/services/inspection.service'
+import { resolveMediaUrl } from '@/services/property.service'
 import {
+  confirmPropertyHandover,
   getComparison,
+  getHandoverReadiness,
   listDamageAssessments,
+  submitRepair,
+  updateRepairResolution,
   upsertDamageAssessment,
 } from '@/services/settlement.service'
 import type {
@@ -31,7 +36,30 @@ import type {
   ComparisonResult,
   DamageAssessment,
   DamageClassification,
+  HandoverReadiness,
 } from '@/types'
+
+const REPAIR_REQUIRED = new Set([
+  'TENANT_DAMAGE',
+  'MISSING_ITEM',
+  'UNAUTHORIZED_CHANGE',
+  'REQUIRES_REVIEW',
+])
+
+function resolutionLabel(status?: string) {
+  switch (status) {
+    case 'RESOLVED':
+      return 'Resolved'
+    case 'REPAIRED_PENDING_VERIFICATION':
+      return 'Awaiting Owner Verification'
+    case 'REPAIR_PENDING':
+      return 'Still requires work'
+    case 'NOT_REQUIRED':
+      return 'Not required'
+    default:
+      return 'Open'
+  }
+}
 
 type FilterKey = 'all' | 'changed' | 'no_change' | 'damaged' | 'missing' | 'improved' | 'needs_review'
 
@@ -93,12 +121,20 @@ function ComparisonCard({
   item,
   assessment,
   isOwner,
+  isTenant,
   onAssess,
+  onRepair,
+  onResolve,
+  onNeedsWork,
 }: {
   item: ComparisonItem
   assessment?: DamageAssessment
   isOwner: boolean
+  isTenant: boolean
   onAssess: (item: ComparisonItem) => void
+  onRepair: (assessment: DamageAssessment) => void
+  onResolve: (assessment: DamageAssessment) => void
+  onNeedsWork: (assessment: DamageAssessment) => void
 }) {
   const muted = item.result === 'NO_CHANGE'
   const showCta = isOwner && !['NO_CHANGE', 'IMPROVED'].includes(item.result)
@@ -152,10 +188,53 @@ function ComparisonCard({
       ) : null}
 
       {assessment ? (
-        <p className="mt-3 text-sm">
-          <span className="font-semibold text-ink">Assessment: </span>
-          {CLASSIFICATIONS.find((c) => c.value === assessment.classification)?.label}
-        </p>
+        <div className="mt-3 space-y-2 text-sm">
+          <p>
+            <span className="font-semibold text-ink">Assessment: </span>
+            {CLASSIFICATIONS.find((c) => c.value === assessment.classification)?.label}
+          </p>
+          {REPAIR_REQUIRED.has(assessment.classification) ? (
+            <p>
+              <span className="font-semibold text-ink">Repair: </span>
+              {resolutionLabel(assessment.resolutionStatus)}
+              {assessment.resolutionStatus === 'RESOLVED' ? ' ✓' : ''}
+            </p>
+          ) : null}
+          {assessment.tenantRepairNotes ? (
+            <p className="text-ink-secondary">Tenant update: {assessment.tenantRepairNotes}</p>
+          ) : null}
+          {assessment.resolutionNotes ? (
+            <p className="text-ink-secondary">Owner note: {assessment.resolutionNotes}</p>
+          ) : null}
+          {assessment.tenantRepairEvidenceUrl ? (
+            <img
+              src={resolveMediaUrl(assessment.tenantRepairEvidenceUrl)}
+              alt="After repair"
+              className="h-24 w-24 rounded-lg object-cover"
+            />
+          ) : null}
+          <div className="flex flex-wrap gap-2">
+            {isTenant &&
+            REPAIR_REQUIRED.has(assessment.classification) &&
+            (assessment.resolutionStatus === 'OPEN' ||
+              assessment.resolutionStatus === 'REPAIR_PENDING' ||
+              !assessment.resolutionStatus) ? (
+              <Button size="sm" variant="secondary" onClick={() => onRepair(assessment)}>
+                Repair Completed
+              </Button>
+            ) : null}
+            {isOwner && assessment.resolutionStatus === 'REPAIRED_PENDING_VERIFICATION' ? (
+              <>
+                <Button size="sm" onClick={() => onResolve(assessment)}>
+                  Mark Resolved
+                </Button>
+                <Button size="sm" variant="secondary" onClick={() => onNeedsWork(assessment)}>
+                  Still Requires Work
+                </Button>
+              </>
+            ) : null}
+          </div>
+        </div>
       ) : null}
 
       {showCta ? (
@@ -182,6 +261,11 @@ export function ComparisonPage() {
   const [classification, setClassification] = useState<DamageClassification>('REQUIRES_REVIEW')
   const [description, setDescription] = useState('')
   const [saving, setSaving] = useState(false)
+  const [readiness, setReadiness] = useState<HandoverReadiness | null>(null)
+  const [repairTarget, setRepairTarget] = useState<DamageAssessment | null>(null)
+  const [needsWorkTarget, setNeedsWorkTarget] = useState<DamageAssessment | null>(null)
+  const [repairNotes, setRepairNotes] = useState('')
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
   const isOwner = user?.role === 'OWNER'
 
@@ -189,12 +273,14 @@ export function ComparisonPage() {
     if (!tenancyId) return
     setLoading(true)
     try {
-      const [comparison, assessmentList] = await Promise.all([
+      const [comparison, assessmentList, handover] = await Promise.all([
         getComparison(tenancyId),
         listDamageAssessments(tenancyId),
+        getHandoverReadiness(tenancyId).catch(() => null),
       ])
       setData(comparison)
       setAssessments(assessmentList)
+      setReadiness(handover)
       const expanded: Record<string, boolean> = {}
       comparison.rooms.forEach((room) => {
         expanded[room.roomId] = true
@@ -234,6 +320,65 @@ export function ComparisonPage() {
     setAssessItem(item)
     setClassification(existing?.classification || 'REQUIRES_REVIEW')
     setDescription(existing?.description || '')
+  }
+
+  const replaceAssessment = (assessment: DamageAssessment) => {
+    setAssessments((prev) => {
+      const next = prev.filter((item) => item.id !== assessment.id)
+      return [assessment, ...next]
+    })
+  }
+
+  const decideRepair = async (
+    assessment: DamageAssessment,
+    action: 'RESOLVED' | 'REPAIR_PENDING',
+    notes?: string,
+  ) => {
+    setSaving(true)
+    setError('')
+    try {
+      const updated = await updateRepairResolution(assessment.id, { action, notes })
+      replaceAssessment(updated)
+      setNeedsWorkTarget(null)
+      const handover = await getHandoverReadiness(tenancyId).catch(() => null)
+      setReadiness(handover)
+    } catch (err) {
+      setError(getErrorMessage(err, 'Unable to update repair status'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const saveRepair = async () => {
+    if (!repairTarget) return
+    setSaving(true)
+    setError('')
+    try {
+      const updated = await submitRepair(repairTarget.id, { notes: repairNotes.trim() })
+      replaceAssessment(updated)
+      setRepairTarget(null)
+      const handover = await getHandoverReadiness(tenancyId).catch(() => null)
+      setReadiness(handover)
+    } catch (err) {
+      setError(getErrorMessage(err, 'Unable to submit repair'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const confirmHandover = async () => {
+    setSaving(true)
+    setError('')
+    try {
+      await confirmPropertyHandover(tenancyId)
+      setConfirmOpen(false)
+      const handover = await getHandoverReadiness(tenancyId)
+      setReadiness(handover)
+    } catch (err) {
+      setError(getErrorMessage(err, 'Unable to confirm handover'))
+    } finally {
+      setSaving(false)
+    }
   }
 
   const saveAssessment = async () => {
@@ -299,6 +444,53 @@ export function ComparisonPage() {
           Tenant: <span className="font-semibold text-ink">{data.tenancy.tenantName}</span>
         </p>
       </Card>
+
+      {readiness ? (
+        <Card>
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+            Property Handover Review
+          </p>
+          <h2 className="mt-2 text-lg font-bold text-ink">
+            {readiness.status === 'HANDED_OVER'
+              ? 'Handover Completed'
+              : readiness.status === 'READY_FOR_HANDOVER'
+                ? 'Ready for handover'
+                : 'Handover pending'}
+          </h2>
+          <dl className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
+            <div>Rooms inspected: {readiness.summary.roomsInspected}/{readiness.summary.roomsTotal}</div>
+            <div>
+              Inventory reviewed: {readiness.summary.inventoryReviewed}/{readiness.summary.inventoryTotal}
+            </div>
+            <div>
+              Owner conditions: {readiness.summary.conditionsReviewed}/{readiness.summary.conditionsTotal}
+            </div>
+            <div>
+              Approved changes: {readiness.summary.changesReviewed}/{readiness.summary.changesTotal}
+            </div>
+            <div>
+              Resolved damage: {readiness.summary.resolvedDamage}/{readiness.summary.damageIssues}
+            </div>
+            <div>Keys recorded: {readiness.summary.accessItemCount}</div>
+            <div>Meter readings: {readiness.summary.meterCount}</div>
+          </dl>
+          <ul className="mt-4 space-y-1 text-sm">
+            {Object.entries(readiness.checks).map(([key, ok]) => (
+              <li key={key}>
+                {ok ? '✓' : '•'} {key.replace(/([A-Z])/g, ' $1')}
+              </li>
+            ))}
+          </ul>
+          {readiness.blockers[0] ? (
+            <p className="mt-3 text-sm text-ink-secondary">{readiness.blockers[0]}</p>
+          ) : null}
+          {isOwner && readiness.canConfirm ? (
+            <Button className="mt-4" onClick={() => setConfirmOpen(true)}>
+              Confirm Property Handover
+            </Button>
+          ) : null}
+        </Card>
+      ) : null}
 
       <ApprovedChangesSection
         title="Approved Mid-Tenancy Changes"
@@ -385,7 +577,17 @@ export function ComparisonPage() {
                       item.moveOutItemId ? assessmentByItem.get(item.moveOutItemId) : undefined
                     }
                     isOwner={isOwner}
+                    isTenant={!isOwner}
                     onAssess={openAssess}
+                    onRepair={(assessment) => {
+                      setRepairTarget(assessment)
+                      setRepairNotes('')
+                    }}
+                    onResolve={(assessment) => void decideRepair(assessment, 'RESOLVED')}
+                    onNeedsWork={(assessment) => {
+                      setNeedsWorkTarget(assessment)
+                      setRepairNotes('')
+                    }}
                   />
                 ))}
               </div>
@@ -468,6 +670,83 @@ export function ComparisonPage() {
             />
           </div>
         ) : null}
+      </Modal>
+
+      <Modal
+        open={Boolean(repairTarget)}
+        onClose={() => setRepairTarget(null)}
+        title="Repair Completed"
+        description="This does not change the original Move-Out condition. The owner still needs to verify the repair."
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setRepairTarget(null)}>
+              Cancel
+            </Button>
+            <Button disabled={saving} onClick={() => void saveRepair()}>
+              Submit Repair
+            </Button>
+          </>
+        }
+      >
+        <Textarea
+          label="Repair notes"
+          value={repairNotes}
+          onChange={(e) => setRepairNotes(e.target.value)}
+          placeholder="Wall holes repaired and repainted."
+        />
+      </Modal>
+
+      <Modal
+        open={Boolean(needsWorkTarget)}
+        onClose={() => setNeedsWorkTarget(null)}
+        title="Still Requires Work"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setNeedsWorkTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={saving || !needsWorkTarget}
+              onClick={() =>
+                needsWorkTarget && void decideRepair(needsWorkTarget, 'REPAIR_PENDING', repairNotes)
+              }
+            >
+              Save
+            </Button>
+          </>
+        }
+      >
+        <Textarea
+          label="What still needs work?"
+          value={repairNotes}
+          onChange={(e) => setRepairNotes(e.target.value)}
+          placeholder="Paint colour does not match the original wall."
+        />
+      </Modal>
+
+      <Modal
+        open={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        title="Confirm Property Handover?"
+        description="Confirm that the tenant has returned the property and all required Move-Out conditions have been reviewed."
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setConfirmOpen(false)}>
+              Cancel
+            </Button>
+            <Button disabled={saving} onClick={() => void confirmHandover()}>
+              Confirm Handover
+            </Button>
+          </>
+        }
+      >
+        <ul className="space-y-1 text-sm">
+          {readiness
+            ? Object.entries(readiness.checks)
+                .filter(([, ok]) => ok)
+                .map(([key]) => <li key={key}>✓ {key.replace(/([A-Z])/g, ' $1')}</li>)
+            : null}
+        </ul>
       </Modal>
     </div>
   )

@@ -25,6 +25,50 @@ export async function upsertAssessment(req, res, next) {
   }
 }
 
+export async function submitRepair(req, res, next) {
+  try {
+    const assessment = await damageService.submitRepair(
+      req.user,
+      req.params.assessmentId,
+      req.body,
+    );
+    return res.status(200).json({ success: true, data: { assessment } });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function updateRepairResolution(req, res, next) {
+  try {
+    const assessment = await damageService.updateRepairResolution(
+      req.user,
+      req.params.assessmentId,
+      req.body,
+    );
+    return res.status(200).json({ success: true, data: { assessment } });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function handoverReadiness(req, res, next) {
+  try {
+    const readiness = await settlementService.getHandoverReadiness(req.user, req.params.tenancyId);
+    return res.status(200).json({ success: true, data: readiness });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function confirmHandover(req, res, next) {
+  try {
+    const data = await settlementService.confirmPropertyHandover(req.user, req.params.tenancyId);
+    return res.status(200).json({ success: true, data });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 export async function removeAssessment(req, res, next) {
   try {
     await damageService.deleteAssessment(req.user, req.params.assessmentId);

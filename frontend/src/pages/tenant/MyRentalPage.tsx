@@ -26,6 +26,7 @@ export function MyRentalPage() {
   const navigate = useNavigate()
   const { user, refreshUser } = useAuth()
   const access = user?.tenantAccess
+  const readOnly = access?.status === 'CLOSED' || Boolean(access?.readOnly)
   const [inspections, setInspections] = useState<Inspection[]>([])
   const [changeRequests, setChangeRequests] = useState<PropertyChangeRequest[]>([])
   const [conditions, setConditions] = useState<TenancyCondition[]>([])
@@ -65,7 +66,27 @@ export function MyRentalPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="My Rental" description="Your current tenancy information." />
+      <PageHeader
+        title="My Rental"
+        description={
+          readOnly
+            ? 'Completed tenancy history. This record is read-only.'
+            : 'Your current tenancy information.'
+        }
+      />
+
+      {readOnly ? (
+        <Card>
+          <h2 className="text-lg font-bold text-ink">Tenancy Completed</h2>
+          <p className="mt-2 text-sm text-ink-secondary">
+            Your tenancy for {access?.propertyName} has been completed. Inspections, property
+            changes, and settlement details remain available to view.
+          </p>
+          <Button className="mt-4" onClick={() => navigate(paths.reports)}>
+            View Final Report
+          </Button>
+        </Card>
+      ) : null}
 
       <TenancyDateCard
         role="TENANT"
@@ -73,9 +94,9 @@ export function MyRentalPage() {
         expectedMoveOut={access?.moveOut}
         actualMoveOut={access?.actualMoveOut}
         timeline={access?.moveOutTimeline}
-        pendingExtension={access?.pendingExtension}
-        latestRejectedExtension={access?.latestRejectedExtension}
-        onRequestExtension={() => setExtensionOpen(true)}
+        pendingExtension={readOnly ? null : access?.pendingExtension}
+        latestRejectedExtension={readOnly ? null : access?.latestRejectedExtension}
+        onRequestExtension={readOnly ? undefined : () => setExtensionOpen(true)}
         onViewMoveOut={
           action.path && action.label?.toLowerCase().includes('move-out')
             ? () => navigate(action.path!)
@@ -89,7 +110,9 @@ export function MyRentalPage() {
             <h2 className="text-xl font-bold text-ink">{access?.propertyName}</h2>
             <p className="mt-1 text-sm text-ink-secondary">Owner: {access?.ownerName}</p>
           </div>
-          <Badge status="Active">{getOccupancyLabel(tenancyLike)}</Badge>
+          <Badge status={readOnly ? 'Completed' : 'Active'}>
+            {readOnly ? 'Completed' : getOccupancyLabel(tenancyLike)}
+          </Badge>
         </div>
         <dl className="mt-6 grid gap-4 text-sm sm:grid-cols-2">
           <div>
@@ -122,6 +145,7 @@ export function MyRentalPage() {
         ) : null}
       </Card>
 
+      {!readOnly ? (
       <Card className={action.kind === 'action' ? 'border-brand-200 bg-brand-50/40' : ''}>
         <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
           {action.kind === 'action' ? 'Action required' : 'Status'}
@@ -134,6 +158,7 @@ export function MyRentalPage() {
           </Button>
         ) : null}
       </Card>
+      ) : null}
 
       {conditions.length ? (
         <Card>
@@ -159,7 +184,8 @@ export function MyRentalPage() {
               </li>
             ))}
           </ul>
-          {conditions.some((c) => c.status === 'AMENDMENT_PENDING' || c.status === 'DRAFT') &&
+          {!readOnly &&
+          conditions.some((c) => c.status === 'AMENDMENT_PENDING' || c.status === 'DRAFT') &&
           access?.tenancyId ? (
             <Button
               className="mt-4"
@@ -194,7 +220,7 @@ export function MyRentalPage() {
             </p>
           </div>
           <Button onClick={() => navigate(paths.propertyChanges)}>
-            {changeRequests.length ? 'View Requests' : 'Request a Change'}
+            {readOnly || changeRequests.length ? 'View Requests' : 'Request a Change'}
           </Button>
         </div>
         {changeRequests.length ? (

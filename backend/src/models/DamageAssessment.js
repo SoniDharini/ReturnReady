@@ -1,5 +1,20 @@
 import mongoose from 'mongoose';
 
+const RESOLUTION_STATUSES = [
+  'OPEN',
+  'REPAIR_PENDING',
+  'REPAIRED_PENDING_VERIFICATION',
+  'RESOLVED',
+  'NOT_REQUIRED',
+];
+
+const REPAIR_REQUIRED_CLASSIFICATIONS = [
+  'TENANT_DAMAGE',
+  'MISSING_ITEM',
+  'UNAUTHORIZED_CHANGE',
+  'REQUIRES_REVIEW',
+];
+
 const CLASSIFICATIONS = [
   'NORMAL_WEAR_AND_TEAR',
   'EXISTING_DAMAGE',
@@ -47,6 +62,21 @@ const damageAssessmentSchema = new mongoose.Schema(
       required: true,
     },
     assessedAt: { type: Date, default: Date.now },
+    resolutionStatus: {
+      type: String,
+      enum: RESOLUTION_STATUSES,
+      default: 'OPEN',
+    },
+    tenantRepairNotes: { type: String, trim: true, default: '' },
+    tenantRepairEvidenceUrl: { type: String, trim: true, default: '' },
+    tenantRepairSubmittedAt: { type: Date, default: null },
+    resolutionNotes: { type: String, trim: true, default: '' },
+    resolvedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    resolvedAt: { type: Date, default: null },
   },
   { timestamps: true },
 );
@@ -68,4 +98,4 @@ damageAssessmentSchema.set('toJSON', {
 });
 
 export const DamageAssessment = mongoose.model('DamageAssessment', damageAssessmentSchema);
-export { CLASSIFICATIONS };
+export { CLASSIFICATIONS, RESOLUTION_STATUSES, REPAIR_REQUIRED_CLASSIFICATIONS };

@@ -15,6 +15,7 @@ router.use(protect, requireOwner);
 
 router.get('/', propertyController.list);
 router.post('/', validateBody(propertySchema), propertyController.create);
+router.get('/:id/tenancy-history', propertyController.tenancyHistory);
 router.get('/:id', propertyController.getOne);
 router.put('/:id', validateBody(propertySchema.partial()), propertyController.update);
 router.delete('/:id', propertyController.remove);

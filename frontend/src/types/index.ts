@@ -126,6 +126,21 @@ export type AuthUser = {
     occupancyStatus?: OccupancyStatus
     stage?: TenancyStage
     deposit: number
+    readOnly?: boolean
+    completedAt?: string | null
+    completedTenancies?: Array<{
+      tenancyId: string
+      propertyId?: string
+      propertyName: string
+      ownerName: string
+      moveIn: string
+      moveOut: string
+      actualMoveOut?: string | null
+      stage?: TenancyStage
+      status?: string
+      completedAt?: string | null
+      readOnly: boolean
+    }>
     moveOutTimeline?: MoveOutTimeline | null
     pendingExtension?: TenancyExtensionRequest | null
     latestRejectedExtension?: TenancyExtensionRequest | null
@@ -445,6 +460,44 @@ export type DamageAssessment = {
   deductionRequired: boolean
   assessedBy: string
   assessedAt: string
+  resolutionStatus?: RepairResolutionStatus
+  tenantRepairNotes?: string
+  tenantRepairEvidenceUrl?: string
+  tenantRepairSubmittedAt?: string | null
+  resolutionNotes?: string
+  resolvedBy?: string | null
+  resolvedAt?: string | null
+}
+
+export type RepairResolutionStatus =
+  | 'OPEN'
+  | 'REPAIR_PENDING'
+  | 'REPAIRED_PENDING_VERIFICATION'
+  | 'RESOLVED'
+  | 'NOT_REQUIRED'
+
+export type HandoverReadiness = {
+  status: 'IN_PROGRESS' | 'ISSUES_PENDING' | 'READY_FOR_HANDOVER' | 'HANDED_OVER'
+  canConfirm: boolean
+  handoverConfirmed: boolean
+  handoverConfirmedAt?: string | null
+  blockers: string[]
+  checks: Record<string, boolean>
+  summary: {
+    roomsInspected: number
+    roomsTotal: number
+    inventoryReviewed: number
+    inventoryTotal: number
+    conditionsReviewed: number
+    conditionsTotal: number
+    changesReviewed: number
+    changesTotal: number
+    damageIssues: number
+    resolvedDamage: number
+    pendingRepairs: number
+    meterCount: number
+    accessItemCount: number
+  }
 }
 
 export type DeductionStatus = 'PROPOSED' | 'ACCEPTED' | 'DISPUTED' | 'RESOLVED' | 'CANCELLED'
@@ -597,6 +650,8 @@ export type HandoverReport = {
   generatedBy: string
   propertyName?: string
   tenantName?: string
+  moveIn?: string
+  moveOut?: string
   completedAt?: string
   snapshot?: Record<string, unknown>
 }

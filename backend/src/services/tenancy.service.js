@@ -75,6 +75,14 @@ async function hasLockedMoveIn(tenancyId) {
 }
 
 export async function listTenanciesForOwner(ownerId) {
+  const existing = await Tenancy.find({ ownerId }).sort({ createdAt: -1 });
+  const { tryFinalizeTenancy } = await import('./settlement.service.js');
+  for (const tenancy of existing) {
+    if (tenancy.stage === 'complete' || tenancy.status === 'Completed') continue;
+    if (tenancy.inviteStatus !== 'Accepted') continue;
+    await tryFinalizeTenancy(tenancy._id.toString());
+  }
+
   const tenancies = await Tenancy.find({ ownerId }).sort({ createdAt: -1 });
   const formatted = await attachTenancyTimelines(tenancies);
   return formatted.map((json, index) => attachInvitationFields(json, tenancies[index]));
@@ -297,52 +305,113 @@ export async function activateTenantFromInvite({ token, password, conditionsAcce
   return { user: safeUser, accessToken, refreshToken };
 }
 
+function isTenancyClosed(tenancy) {
+  return tenancy.stage === 'complete' || tenancy.status === 'Completed';
+}
+
+function summarizeCompletedTenancy(tenancy) {
+  return {
+    tenancyId: tenancy._id.toString(),
+    propertyId: tenancy.propertyId?.toString?.() || tenancy.propertyId,
+    propertyName: tenancy.propertyName,
+    ownerName: tenancy.ownerName,
+    moveIn: tenancy.moveIn,
+    moveOut: tenancy.moveOut,
+    actualMoveOut: tenancy.actualMoveOut,
+    stage: tenancy.stage,
+    status: tenancy.status,
+    completedAt: tenancy.completedAt || null,
+    readOnly: true,
+  };
+}
+
 export async function getTenantAccessForUser(userId) {
-  const tenancy = await Tenancy.findOne({
+  const tenancies = await Tenancy.find({
     tenantUserId: userId,
     inviteStatus: 'Accepted',
   }).sort({ updatedAt: -1 });
 
-  if (!tenancy) return null;
+  if (!tenancies.length) return null;
 
-  const base =
-    tenancy.stage === 'complete' || tenancy.status === 'Completed'
-      ? {
-          status: 'CLOSED',
-          tenancyId: tenancy._id.toString(),
-          inviteId: tenancy.inviteToken,
-          propertyName: tenancy.propertyName,
-          ownerName: tenancy.ownerName,
-          moveIn: tenancy.moveIn,
-          moveOut: tenancy.moveOut,
-          actualMoveOut: tenancy.actualMoveOut,
-          moveOutReason: tenancy.moveOutReason,
-          occupancyStatus: tenancy.occupancyStatus,
-          stage: tenancy.stage,
-          deposit: tenancy.deposit,
-        }
-      : {
-          status: 'ACTIVE',
-          tenancyId: tenancy._id.toString(),
-          inviteId: tenancy.inviteToken,
-          propertyName: tenancy.propertyName,
-          ownerName: tenancy.ownerName,
-          moveIn: tenancy.moveIn,
-          moveOut: tenancy.moveOut,
-          actualMoveOut: tenancy.actualMoveOut,
-          moveOutReason: tenancy.moveOutReason,
-          moveOutNotes: tenancy.moveOutNotes,
-          occupancyStatus: tenancy.occupancyStatus,
-          stage: tenancy.stage,
-          deposit: tenancy.deposit,
-        };
+  const open = tenancies.find((tenancy) => !isTenancyClosed(tenancy) && tenancy.status !== 'Cancelled');
+  const completed = tenancies.filter((tenancy) => isTenancyClosed(tenancy));
+  const tenancy = open || completed[0] || tenancies[0];
+  const closed = !open && isTenancyClosed(tenancy);
+
+  const base = {
+    status: closed ? 'CLOSED' : 'ACTIVE',
+    readOnly: closed,
+    tenancyId: tenancy._id.toString(),
+    inviteId: tenancy.inviteToken,
+    propertyName: tenancy.propertyName,
+    ownerName: tenancy.ownerName,
+    moveIn: tenancy.moveIn,
+    moveOut: tenancy.moveOut,
+    actualMoveOut: tenancy.actualMoveOut,
+    moveOutReason: tenancy.moveOutReason,
+    moveOutNotes: closed ? undefined : tenancy.moveOutNotes,
+    occupancyStatus: tenancy.occupancyStatus,
+    stage: tenancy.stage,
+    deposit: tenancy.deposit,
+    completedAt: tenancy.completedAt || null,
+    completedTenancies: completed.map(summarizeCompletedTenancy),
+  };
 
   return attachAccessTimeline(tenancy, base);
+}
+
+export async function listPropertyTenancyHistory(ownerId, propertyId) {
+  const property = await Property.findById(propertyId);
+  if (!property) throw new ApiError(404, 'Property not found');
+  if (property.ownerId.toString() !== ownerId.toString()) {
+    throw new ApiError(403, 'You do not have permission to view this property.');
+  }
+
+  const { Report } = await import('../models/Report.js');
+  const { Settlement } = await import('../models/Settlement.js');
+
+  const tenancies = await Tenancy.find({ propertyId, ownerId }).sort({ createdAt: -1 });
+  const tenancyIds = tenancies.map((tenancy) => tenancy._id);
+  const [reports, settlements] = await Promise.all([
+    Report.find({ tenancyId: { $in: tenancyIds }, type: 'FINAL_HANDOVER' }),
+    Settlement.find({ tenancyId: { $in: tenancyIds } }),
+  ]);
+
+  const current = tenancies.find((tenancy) => !isTenancyClosed(tenancy) && tenancy.status !== 'Cancelled');
+  const previous = tenancies.filter((tenancy) => isTenancyClosed(tenancy) || tenancy.status === 'Cancelled');
+
+  const mapTenancy = (tenancy) => {
+    const report = reports.find((item) => item.tenancyId.toString() === tenancy._id.toString());
+    const settlement = settlements.find((item) => item.tenancyId.toString() === tenancy._id.toString());
+    return {
+      id: tenancy._id.toString(),
+      tenantName: tenancy.tenantName,
+      propertyName: tenancy.propertyName,
+      moveIn: tenancy.moveIn,
+      moveOut: tenancy.moveOut,
+      actualMoveOut: tenancy.actualMoveOut,
+      status: tenancy.status,
+      stage: tenancy.stage,
+      completedAt: tenancy.completedAt || null,
+      settlementStatus: settlement?.status || null,
+      finalRefund: settlement?.finalRefund ?? null,
+      reportId: report?._id?.toString() || null,
+      reportUrl: report?.fileUrl || null,
+    };
+  };
+
+  return {
+    current: current ? mapTenancy(current) : null,
+    previous: previous.map(mapTenancy),
+  };
 }
 
 export async function updateTenancyForOwner(ownerId, tenancyId, payload) {
   const tenancy = await Tenancy.findOne({ _id: tenancyId, ownerId });
   if (!tenancy) throw new ApiError(404, 'Tenancy not found');
+  if (isTenancyClosed(tenancy)) {
+    throw new ApiError(403, 'This tenancy is completed and is read-only');
+  }
 
   const lockedMoveIn = await hasLockedMoveIn(tenancy._id);
 

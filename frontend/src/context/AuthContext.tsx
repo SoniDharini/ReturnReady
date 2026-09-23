@@ -106,11 +106,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const mapped = mapUser(result.user)
           setUser(mapped)
 
-          if (
-            mapped.role === 'TENANT' &&
-            (mapped.tenantAccess?.status === 'CLOSED' ||
-              mapped.tenantAccess?.status === 'REVOKED')
-          ) {
+          if (mapped.role === 'TENANT' && mapped.tenantAccess?.status === 'REVOKED') {
             const q = new URLSearchParams({
               property: mapped.tenantAccess.propertyName || '',
               tenancyId: mapped.tenantAccess.tenancyId,

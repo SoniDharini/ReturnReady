@@ -39,6 +39,7 @@ export function getOccupancyLabel(
   tenancy?: Partial<Pick<Tenancy, 'occupancyStatus' | 'stage' | 'status' | 'inviteStatus'>> | null,
 ) {
   if (!tenancy) return '—'
+  if (tenancy.stage === 'complete' || tenancy.status === 'Completed') return 'Completed'
   switch (tenancy.occupancyStatus) {
     case 'UPCOMING':
       return 'Upcoming'
@@ -49,7 +50,9 @@ export function getOccupancyLabel(
     case 'MOVED_OUT':
       return 'Moved Out'
     case 'COMPLETED':
-      return 'Handover Completed'
+      return tenancy.stage === 'complete' || tenancy.status === 'Completed'
+        ? 'Completed'
+        : 'Move-Out in Progress'
     default:
       break
   }
@@ -116,6 +119,14 @@ export function getOwnerAction(
 
   const moveIn = inspections.find((i) => i.type === 'MOVE_IN')
   const moveOut = inspections.find((i) => i.type === 'MOVE_OUT')
+
+  if (tenancy.stage === 'complete' || tenancy.status === 'Completed') {
+    return {
+      kind: 'info',
+      title: 'Tenancy completed',
+      description: `${tenancy.tenantName}'s handover is complete. History and the final report remain available. Invite a new tenant from the property page when it is available.`,
+    }
+  }
 
   if (tenancy.inviteStatus === 'Pending') {
     return {

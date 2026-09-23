@@ -27,6 +27,30 @@ export async function getProperty(id: string) {
   return data.data.property
 }
 
+export type PropertyTenancyHistoryItem = {
+  id: string
+  tenantName: string
+  propertyName: string
+  moveIn: string
+  moveOut: string
+  actualMoveOut?: string | null
+  status: string
+  stage: string
+  completedAt?: string | null
+  settlementStatus?: string | null
+  finalRefund?: number | null
+  reportId?: string | null
+  reportUrl?: string | null
+}
+
+export async function getPropertyTenancyHistory(propertyId: string) {
+  const { data } = await api.get<{
+    success: boolean
+    data: { current: PropertyTenancyHistoryItem | null; previous: PropertyTenancyHistoryItem[] }
+  }>(`/properties/${propertyId}/tenancy-history`)
+  return data.data
+}
+
 export async function createProperty(payload: {
   name: string
   type: string

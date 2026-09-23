@@ -1,9 +1,19 @@
 import * as propertyService from '../services/property.service.js';
+import { listPropertyTenancyHistory } from '../services/tenancy.service.js';
 
 export async function list(req, res, next) {
   try {
     const properties = await propertyService.listPropertiesForOwner(req.user.id);
     return res.status(200).json({ success: true, data: { properties } });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function tenancyHistory(req, res, next) {
+  try {
+    const history = await listPropertyTenancyHistory(req.user.id, req.params.id);
+    return res.status(200).json({ success: true, data: history });
   } catch (error) {
     return next(error);
   }

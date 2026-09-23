@@ -3,6 +3,7 @@ import type {
   ComparisonData,
   DamageAssessment,
   DamageClassification,
+  HandoverReadiness,
   DisputeReason,
   HandoverReport,
   SettlementData,
@@ -47,6 +48,42 @@ export async function upsertDamageAssessment(
 
 export async function deleteDamageAssessment(assessmentId: string) {
   await api.delete(`/settlement/damage-assessments/${assessmentId}`)
+}
+
+export async function submitRepair(
+  assessmentId: string,
+  payload: { notes: string; evidenceDataUrl?: string },
+) {
+  const { data } = await api.post<AssessmentResponse>(
+    `/settlement/damage-assessments/${assessmentId}/repair`,
+    payload,
+  )
+  return data.data.assessment
+}
+
+export async function updateRepairResolution(
+  assessmentId: string,
+  payload: { action: 'RESOLVED' | 'REPAIR_PENDING'; notes?: string },
+) {
+  const { data } = await api.post<AssessmentResponse>(
+    `/settlement/damage-assessments/${assessmentId}/resolution`,
+    payload,
+  )
+  return data.data.assessment
+}
+
+export async function getHandoverReadiness(tenancyId: string) {
+  const { data } = await api.get<{ success: boolean; data: HandoverReadiness }>(
+    `/settlement/tenancies/${tenancyId}/handover/readiness`,
+  )
+  return data.data
+}
+
+export async function confirmPropertyHandover(tenancyId: string) {
+  const { data } = await api.post<SettlementResponse>(
+    `/settlement/tenancies/${tenancyId}/handover/confirm`,
+  )
+  return data.data
 }
 
 export async function getSettlement(tenancyId: string) {

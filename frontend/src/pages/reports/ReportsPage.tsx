@@ -30,15 +30,18 @@ export function ReportsPage() {
 
   return (
     <div>
-      <PageHeader title="Reports" description="Download completed handover reports." />
+      <PageHeader
+        title="Reports"
+        description="Completed tenancy reports from Move-In through final settlement."
+      />
 
       {loading ? <p className="text-sm text-ink-secondary">Loading reports...</p> : null}
 
       {!loading && reports.length === 0 ? (
         <EmptyState
           icon={FileText}
-          title="No Reports Yet"
-          description="Completed handover reports will appear here."
+          title="No Completed Tenancy Reports"
+          description="Reports will appear here after a tenancy completes its Move-Out and Settlement process."
         />
       ) : null}
 
@@ -63,15 +66,23 @@ export function ReportsPage() {
                 <Card className="flex flex-wrap items-start justify-between gap-4">
                   <div>
                     <h2 className="font-bold text-ink">
-                      {report.propertyName || snapshot?.propertyName || 'Handover Report'}
+                      {report.propertyName || snapshot?.propertyName || 'Final Tenancy Handover Report'}
                     </h2>
+                    <p className="mt-1 text-sm font-medium text-ink-secondary">
+                      Move-In / Move-Out Report
+                    </p>
                     {report.tenantName || snapshot?.tenantName ? (
                       <p className="mt-1 text-sm text-ink-secondary">
                         Tenant: {report.tenantName || snapshot?.tenantName}
                       </p>
                     ) : null}
+                    {report.moveIn || report.moveOut ? (
+                      <p className="mt-1 text-sm text-ink-secondary">
+                        {formatDisplayDate(report.moveIn)} → {formatDisplayDate(report.moveOut)}
+                      </p>
+                    ) : null}
                     <p className="mt-1 text-sm text-ink-muted">
-                      Completed: {formatDisplayDate(report.completedAt || report.generatedAt)}
+                      Status: Completed · {formatDisplayDate(report.completedAt || report.generatedAt)}
                     </p>
                     {refund > 0 ? (
                       <p className="mt-1 text-sm font-semibold text-brand-700">

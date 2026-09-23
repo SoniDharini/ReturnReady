@@ -130,6 +130,10 @@ export async function createInspection(user, tenancyId, { type = 'MOVE_IN' }) {
 
   const tenancy = await getTenancyForUser(user, tenancyId);
 
+  if (tenancy.stage === 'complete' || tenancy.status === 'Completed') {
+    throw new ApiError(403, 'This tenancy is completed and cannot start a new inspection');
+  }
+
   if (tenancy.inviteStatus !== 'Accepted') {
     throw new ApiError(400, 'Tenant must accept the invitation before starting inspection');
   }

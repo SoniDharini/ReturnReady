@@ -705,6 +705,7 @@ export async function cancelChangeRequest(user, requestId) {
     inviteStatus: 'Accepted',
   });
   if (!tenancy) throw new ApiError(403, 'You do not have permission');
+  assertActiveTenant(tenancy);
   if (request.status !== 'PENDING') {
     throw new ApiError(400, 'Only pending requests can be cancelled');
   }

@@ -24,6 +24,16 @@ router.post(
   settlementController.upsertAssessment,
 );
 router.delete('/damage-assessments/:assessmentId', settlementController.removeAssessment);
+router.post(
+  '/damage-assessments/:assessmentId/repair',
+  settlementController.submitRepair,
+);
+router.post(
+  '/damage-assessments/:assessmentId/resolution',
+  settlementController.updateRepairResolution,
+);
+router.get('/tenancies/:tenancyId/handover/readiness', settlementController.handoverReadiness);
+router.post('/tenancies/:tenancyId/handover/confirm', settlementController.confirmHandover);
 
 router.get('/tenancies/:tenancyId/settlement', settlementController.getSettlement);
 router.get('/tenancies/:tenancyId/deductions', settlementController.listDeductions);

@@ -24,6 +24,7 @@ import {
 } from './settlementHelpers.js';
 import { loadComparisonForTenancy } from './comparison.service.js';
 import { DamageAssessment } from '../models/DamageAssessment.js';
+import { isRepairBlocking } from './damage.service.js';
 import { TenancyCondition } from '../models/TenancyCondition.js';
 import { PropertyChangeRequest } from '../models/PropertyChangeRequest.js';
 
@@ -334,8 +335,7 @@ export async function signSettlement(user, tenancyId, { signatureDataUrl }) {
   });
 
   if (settlement.ownerSigned && settlement.tenantSigned) {
-    await generateFinalReport(user, tenancyId);
-    await finalizeTenancyInternal(tenancyId);
+    await tryFinalizeTenancy(tenancyId);
   }
 
   return getSettlement(user, tenancyId);
@@ -348,6 +348,7 @@ async function finalizeTenancyInternal(tenancyId) {
   tenancy.stage = 'complete';
   tenancy.status = 'Completed';
   tenancy.occupancyStatus = 'COMPLETED';
+  if (!tenancy.completedAt) tenancy.completedAt = new Date();
   if (!tenancy.actualMoveOut) tenancy.actualMoveOut = tenancy.moveOut;
   await tenancy.save();
 
@@ -358,13 +359,21 @@ async function finalizeTenancyInternal(tenancyId) {
     await property.save();
   }
 
+  await createNotification({
+    userId: tenancy.ownerId,
+    tenancyId: tenancy._id,
+    type: 'TENANCY_COMPLETED',
+    title: 'Tenancy Completed',
+    message: `The tenancy for ${tenancy.tenantName} at ${tenancy.propertyName} has been completed. The property is now available for a new Tenant.`,
+  });
+
   if (tenancy.tenantUserId) {
     await createNotification({
       userId: tenancy.tenantUserId,
       tenancyId: tenancy._id,
       type: 'TENANCY_COMPLETED',
-      title: 'Handover completed',
-      message: `Your tenancy for ${tenancy.propertyName} has been completed.`,
+      title: 'Tenancy Completed',
+      message: `Your tenancy at ${tenancy.propertyName} has been completed. Your final report is available.`,
     });
   }
 }
@@ -383,8 +392,143 @@ export async function completeTenancy(user, tenancyId) {
     throw new ApiError(400, 'Both signatures are required');
   }
 
-  await finalizeTenancyInternal(tenancyId);
+  const result = await tryFinalizeTenancy(tenancyId);
+  if (!result.finalized && !result.alreadyComplete) {
+    throw new ApiError(400, result.blockers[0] || 'Tenancy is not ready to complete');
+  }
   return getSettlement(user, tenancyId);
+}
+
+export async function getHandoverReadiness(user, tenancyId) {
+  const tenancy = await getTenancyForUser(user, tenancyId);
+  const { buildMoveOutContext } = await import('./moveOutContext.service.js');
+  const context = await buildMoveOutContext(user, tenancyId);
+  const settlement = await Settlement.findOne({ tenancyId: tenancy._id });
+  const disputes = await Dispute.find({ tenancyId: tenancy._id, status: 'OPEN' });
+  const assessments = await DamageAssessment.find({ tenancyId: tenancy._id });
+  const blockingRepairs = assessments.filter((assessment) => isRepairBlocking(assessment));
+
+  const failedConditions = (context.handoverConditions || []).filter(
+    (condition) => condition.complianceStatus === 'NOT_COMPLIED',
+  );
+  const failedChanges = (context.approvedPropertyChanges || []).filter(
+    (change) => change.complianceStatus === 'NOT_COMPLIED',
+  );
+  const moveOutComplete = context.readiness.moveOutStatus === 'COMPLETED';
+  const conditionsComplete = failedConditions.length === 0;
+  const changesComplete = failedChanges.length === 0;
+  const repairsComplete = blockingRepairs.length === 0;
+  const settlementComplete = Boolean(
+    settlement &&
+      settlement.status === 'COMPLETED' &&
+      settlement.ownerApproved &&
+      settlement.tenantApproved &&
+      settlement.ownerSigned &&
+      settlement.tenantSigned,
+  );
+  const disputesClear = disputes.length === 0;
+  const keysReviewed = !context.moveOutInspection || context.readiness.moveOutStatus === 'COMPLETED';
+  const metersReviewed = keysReviewed;
+
+  const blockers = [];
+  if (!moveOutComplete) blockers.push('Move-out inspection must be completed.');
+  if (!conditionsComplete) {
+    blockers.push(`${failedConditions.length} handover condition${failedConditions.length === 1 ? '' : 's'} marked not complied.`);
+  }
+  if (!changesComplete) {
+    blockers.push(`${failedChanges.length} approved property change${failedChanges.length === 1 ? '' : 's'} marked not complied.`);
+  }
+  if (!repairsComplete) {
+    blockers.push(
+      `${blockingRepairs.length} repair issue${blockingRepairs.length === 1 ? '' : 's'} still require completion.`,
+    );
+  }
+  if (!settlementComplete) blockers.push('Settlement signatures must be completed.');
+  if (!disputesClear) blockers.push('Open settlement disputes must be resolved.');
+
+  const checks = {
+    moveOutInspection: moveOutComplete,
+    ownerConditions: conditionsComplete,
+    propertyChanges: changesComplete,
+    repairs: repairsComplete,
+    keys: keysReviewed && moveOutComplete,
+    meters: metersReviewed && moveOutComplete,
+    settlement: settlementComplete,
+    signatures: settlementComplete,
+    disputes: disputesClear,
+  };
+
+  let status = 'IN_PROGRESS';
+  if (tenancy.stage === 'complete' || tenancy.status === 'Completed') status = 'HANDED_OVER';
+  else if (blockers.length === 0) status = 'READY_FOR_HANDOVER';
+  else if (moveOutComplete) status = 'ISSUES_PENDING';
+
+  return {
+    status,
+    canConfirm: blockers.length === 0 && status !== 'HANDED_OVER',
+    handoverConfirmed: Boolean(tenancy.handoverConfirmed),
+    handoverConfirmedAt: tenancy.handoverConfirmedAt,
+    blockers,
+    checks,
+    summary: {
+      roomsInspected: context.readiness.roomsInspected,
+      roomsTotal: context.readiness.roomsTotal,
+      inventoryReviewed: context.readiness.inventoryCompleted,
+      inventoryTotal: context.readiness.inventoryTotal,
+      conditionsReviewed: context.readiness.conditionsReviewed,
+      conditionsTotal: context.readiness.handoverConditionsCount,
+      changesReviewed: context.readiness.approvedChangesReviewed,
+      changesTotal: context.readiness.approvedChangesCount,
+      damageIssues: assessments.length,
+      resolvedDamage: assessments.filter((item) => !isRepairBlocking(item)).length,
+      pendingRepairs: blockingRepairs.length,
+      meterCount: context.readiness.meterCount,
+      accessItemCount: context.readiness.accessItemCount,
+    },
+  };
+}
+
+export async function confirmPropertyHandover(user, tenancyId) {
+  if (user.role !== 'OWNER') {
+    throw new ApiError(403, 'Only the owner can confirm property handover');
+  }
+
+  const tenancy = await Tenancy.findOne({ _id: tenancyId, ownerId: user.id });
+  if (!tenancy) throw new ApiError(404, 'Tenancy not found');
+  if (tenancy.stage === 'complete' && tenancy.handoverConfirmed) {
+    return getSettlement(user, tenancyId);
+  }
+
+  const result = await tryFinalizeTenancy(tenancyId);
+  if (!result.finalized && !result.alreadyComplete) {
+    throw new ApiError(400, result.blockers[0] || 'Handover is not ready');
+  }
+  return getSettlement(user, tenancyId);
+}
+
+export async function tryFinalizeTenancy(tenancyId) {
+  const tenancy = await Tenancy.findById(tenancyId);
+  if (!tenancy) return { finalized: false, blockers: ['Tenancy not found'] };
+  if (tenancy.stage === 'complete' || tenancy.status === 'Completed') {
+    return { finalized: false, alreadyComplete: true, blockers: [] };
+  }
+
+  const owner = { id: tenancy.ownerId.toString(), role: 'OWNER' };
+  const readiness = await getHandoverReadiness(owner, tenancyId.toString());
+  if (readiness.blockers.length) {
+    return { finalized: false, blockers: readiness.blockers };
+  }
+
+  if (!tenancy.handoverConfirmed) {
+    tenancy.handoverConfirmed = true;
+    tenancy.handoverConfirmedBy = tenancy.ownerId;
+    tenancy.handoverConfirmedAt = new Date();
+    await tenancy.save();
+  }
+
+  await generateFinalReport(owner, tenancyId.toString());
+  await finalizeTenancyInternal(tenancyId);
+  return { finalized: true, blockers: [] };
 }
 
 export async function generateFinalReport(user, tenancyId) {
@@ -432,6 +576,21 @@ export async function generateFinalReport(user, tenancyId) {
     rejectedChanges: changeRequests
       .filter((r) => r.status === 'REJECTED')
       .map((r) => r.toJSON()),
+    damageAssessments: (
+      await DamageAssessment.find({ tenancyId }).sort({ createdAt: 1 })
+    ).map((assessment) => ({
+      itemName: assessment.itemName,
+      classification: assessment.classification,
+      comparisonResult: assessment.comparisonResult,
+      description: assessment.description,
+      deductionRequired: assessment.deductionRequired,
+      resolutionStatus: assessment.resolutionStatus,
+      tenantRepairNotes: assessment.tenantRepairNotes,
+      resolutionNotes: assessment.resolutionNotes,
+      resolvedAt: assessment.resolvedAt,
+    })),
+    propertyNameAtTenancy: tenancy.propertyName,
+    completedAt: tenancy.completedAt || new Date(),
   };
 
   await new Promise((resolve, reject) => {
@@ -472,6 +631,23 @@ export async function generateFinalReport(user, tenancyId) {
     doc.text('Comparison Summary', { underline: true });
     doc.text(`Items compared: ${comparison.summary.totalItems}`);
     doc.text(`Damaged: ${comparison.summary.damaged} · Missing: ${comparison.summary.missing}`);
+    doc.moveDown();
+    doc.text('Historical Move-Out Assessment', { underline: true });
+    if (!snapshot.damageAssessments.length) {
+      doc.text('No damage assessments were recorded.');
+    }
+    for (const assessment of snapshot.damageAssessments) {
+      doc.text(
+        `- ${assessment.itemName}: Move-Out ${assessment.comparisonResult || assessment.classification}`,
+      );
+      doc.text(`  Assessment: ${assessment.classification}`);
+      if (assessment.tenantRepairNotes) doc.text(`  Repair: ${assessment.tenantRepairNotes}`);
+      if (assessment.resolutionStatus) doc.text(`  Owner verification: ${assessment.resolutionStatus}`);
+      if (assessment.resolvedAt) {
+        doc.text(`  Verified: ${new Date(assessment.resolvedAt).toLocaleString()}`);
+      }
+      if (assessment.resolutionNotes) doc.text(`  Notes: ${assessment.resolutionNotes}`);
+    }
     doc.moveDown();
     doc.text('Original Handover Conditions', { underline: true });
     if (tenancy.conditionsAcceptedAt) {
@@ -594,31 +770,40 @@ export async function generateFinalReport(user, tenancyId) {
   return report.toJSON();
 }
 
+function mapReport(report, tenancy) {
+  return {
+    ...report.toJSON(),
+    propertyName: tenancy?.propertyName || report.snapshot?.propertyNameAtTenancy,
+    tenantName: tenancy?.tenantName || report.snapshot?.tenantName,
+    moveIn: tenancy?.moveIn || report.snapshot?.moveIn,
+    moveOut: tenancy?.actualMoveOut || tenancy?.moveOut || report.snapshot?.actualMoveOut,
+    completedAt: tenancy?.completedAt || tenancy?.updatedAt,
+  };
+}
+
 export async function listReports(user) {
   if (user.role === 'OWNER') {
     const tenancies = await Tenancy.find({ ownerId: user.id, stage: 'complete' });
     const ids = tenancies.map((t) => t._id);
     const reports = await Report.find({ tenancyId: { $in: ids } }).sort({ generatedAt: -1 });
-    return reports.map((r) => {
-      const tenancy = tenancies.find((t) => t._id.toString() === r.tenancyId.toString());
-      return {
-        ...r.toJSON(),
-        propertyName: tenancy?.propertyName,
-        tenantName: tenancy?.tenantName,
-        completedAt: tenancy?.updatedAt,
-      };
+    return reports.map((report) => {
+      const tenancy = tenancies.find((t) => t._id.toString() === report.tenancyId.toString());
+      return mapReport(report, tenancy);
     });
   }
 
-  const tenancy = await Tenancy.findOne({ tenantUserId: user.id, inviteStatus: 'Accepted' });
-  if (!tenancy) return [];
-  const reports = await Report.find({ tenancyId: tenancy._id });
-  return reports.map((r) => ({
-    ...r.toJSON(),
-    propertyName: tenancy.propertyName,
-    tenantName: tenancy.tenantName,
-    completedAt: tenancy.updatedAt,
-  }));
+  const tenancies = await Tenancy.find({
+    tenantUserId: user.id,
+    inviteStatus: 'Accepted',
+  });
+  if (!tenancies.length) return [];
+  const reports = await Report.find({
+    tenancyId: { $in: tenancies.map((tenancy) => tenancy._id) },
+  }).sort({ generatedAt: -1 });
+  return reports.map((report) => {
+    const tenancy = tenancies.find((item) => item._id.toString() === report.tenancyId.toString());
+    return mapReport(report, tenancy);
+  });
 }
 
 export async function getReport(user, reportId) {

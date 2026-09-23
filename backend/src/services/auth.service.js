@@ -90,7 +90,7 @@ export async function loginUser({ email, password }) {
         'Your tenant access is not active. Open your invitation link to activate access.',
       );
     }
-    if (enriched.tenantAccess.status === 'CLOSED' || enriched.tenantAccess.status === 'REVOKED') {
+    if (enriched.tenantAccess.status === 'REVOKED') {
       const error = new ApiError(403, 'ACCESS_CLOSED');
       error.propertyName = enriched.tenantAccess.propertyName;
       throw error;

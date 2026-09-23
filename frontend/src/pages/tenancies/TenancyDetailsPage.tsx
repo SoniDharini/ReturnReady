@@ -104,6 +104,7 @@ export function TenancyDetailsPage() {
   const moveIn = inspections.find((i) => i.type === 'MOVE_IN')
   const moveOut = inspections.find((i) => i.type === 'MOVE_OUT')
   const action = getOwnerAction(tenancy, inspections, paths)
+  const completed = tenancy.stage === 'complete' || tenancy.status === 'Completed'
   const canStartMoveOut =
     Boolean(moveIn && (moveIn.status === 'LOCKED' || (moveIn.ownerApproved && moveIn.tenantApproved))) &&
     !moveOut &&
@@ -211,26 +212,30 @@ export function TenancyDetailsPage() {
               </Button>
               {menuOpen ? (
                 <div className="absolute right-0 z-10 mt-1 w-48 rounded-xl border border-border bg-white p-1 shadow-elevated">
-                  <button
-                    type="button"
-                    className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-surface-muted"
-                    onClick={() => {
-                      setEditMoveOutOpen(true)
-                      setMenuOpen(false)
-                    }}
-                  >
-                    Update Dates
-                  </button>
-                  <button
-                    type="button"
-                    className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-surface-muted"
-                    onClick={() => {
-                      setStatusOpen(true)
-                      setMenuOpen(false)
-                    }}
-                  >
-                    Update Tenant Status
-                  </button>
+                  {!completed ? (
+                    <button
+                      type="button"
+                      className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-surface-muted"
+                      onClick={() => {
+                        setEditMoveOutOpen(true)
+                        setMenuOpen(false)
+                      }}
+                    >
+                      Update Dates
+                    </button>
+                  ) : null}
+                  {!completed ? (
+                    <button
+                      type="button"
+                      className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-surface-muted"
+                      onClick={() => {
+                        setStatusOpen(true)
+                        setMenuOpen(false)
+                      }}
+                    >
+                      Update Tenant Status
+                    </button>
+                  ) : null}
                   {moveIn ? (
                     <button
                       type="button"
@@ -274,11 +279,39 @@ export function TenancyDetailsPage() {
             ? 'Continue Move-Out'
             : 'Start Move-Out'
         }
-        onUpdateDate={() => {
-          setExpectedMoveOut(toInputDate(tenancy.moveOut))
-          setEditMoveOutOpen(true)
-        }}
+        onUpdateDate={
+          completed
+            ? undefined
+            : () => {
+                setExpectedMoveOut(toInputDate(tenancy.moveOut))
+                setEditMoveOutOpen(true)
+              }
+        }
       />
+
+      {completed ? (
+        <Card>
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+            Tenancy Completed
+          </p>
+          <h2 className="mt-2 text-lg font-bold text-ink">{tenancy.tenantName}</h2>
+          <p className="mt-1 text-sm text-ink-secondary">
+            Move-out: {formatDisplayDate(tenancy.actualMoveOut || tenancy.moveOut)}
+          </p>
+          <p className="mt-1 text-sm text-ink-secondary">
+            Settlement is complete. This tenancy is preserved as history. The property can be
+            assigned to a new tenant.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={() => navigate(paths.reports)}>
+              View Final Report
+            </Button>
+            <Button variant="secondary" onClick={() => navigate(paths.property(tenancy.propertyId))}>
+              Property Availability
+            </Button>
+          </div>
+        </Card>
+      ) : null}
 
       <Card>
         <dl className="grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-3">

@@ -10,10 +10,13 @@ import {
   deleteProperty,
   deletePropertyImage,
   getProperty,
+  getPropertyTenancyHistory,
   resolveMediaUrl,
   updatePropertyImageCaption,
   uploadPropertyImages,
+  type PropertyTenancyHistoryItem,
 } from '@/services/property.service'
+import { formatDisplayDate } from '@/lib/tenancyContext'
 import { getErrorMessage } from '@/services/api'
 import type { Property } from '@/types'
 import { cn } from '@/lib/utils'
@@ -40,6 +43,10 @@ export function PropertyDetailsPage() {
   const [uploading, setUploading] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [history, setHistory] = useState<{
+    current: PropertyTenancyHistoryItem | null
+    previous: PropertyTenancyHistoryItem[]
+  } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const load = async () => {
@@ -54,6 +61,8 @@ export function PropertyDetailsPage() {
       setLoading(true)
       try {
         await load()
+        const tenancyHistory = await getPropertyTenancyHistory(id).catch(() => null)
+        if (!cancelled && tenancyHistory) setHistory(tenancyHistory)
       } catch (err) {
         if (!cancelled) setError(getErrorMessage(err, 'Unable to load property'))
       } finally {
@@ -419,12 +428,85 @@ export function PropertyDetailsPage() {
       ) : null}
 
       {tab === 'Tenancies' ? (
-        <Card>
-          <p className="text-sm text-ink-secondary">Manage invitations from the Tenancies page.</p>
-          <Button className="mt-4" variant="secondary" onClick={() => navigate(paths.tenancies)}>
-            Go to Tenancies
-          </Button>
-        </Card>
+        <div className="space-y-4">
+          <Card>
+            <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Current</p>
+            {history?.current ? (
+              <>
+                <h2 className="mt-2 text-lg font-bold text-ink">{history.current.tenantName}</h2>
+                <p className="mt-1 text-sm text-ink-secondary">
+                  {formatDisplayDate(history.current.moveIn)} → {formatDisplayDate(history.current.moveOut)}
+                </p>
+                <p className="mt-1 text-sm text-ink-secondary">Status: {history.current.status}</p>
+                <Button
+                  className="mt-4"
+                  variant="secondary"
+                  onClick={() => navigate(paths.tenancy(history.current!.id))}
+                >
+                  View Tenancy
+                </Button>
+              </>
+            ) : (
+              <>
+                <h2 className="mt-2 text-lg font-bold text-ink">No Active Tenant</h2>
+                <p className="mt-1 text-sm text-ink-secondary">
+                  This property is available for a new tenancy.
+                </p>
+                {isPropertyAvailable(property) ? (
+                  <Button
+                    className="mt-4"
+                    onClick={() =>
+                      navigate(`${paths.tenancyNew}?propertyId=${encodeURIComponent(property.id)}`)
+                    }
+                  >
+                    Invite Tenant
+                  </Button>
+                ) : null}
+              </>
+            )}
+          </Card>
+          <Card>
+            <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+              Previous Tenancies
+            </p>
+            {history?.previous?.length ? (
+              <ul className="mt-3 space-y-3">
+                {history.previous.map((item) => (
+                  <li key={item.id} className="rounded-xl border border-border px-4 py-3">
+                    <p className="font-semibold text-ink">{item.tenantName}</p>
+                    <p className="mt-1 text-sm text-ink-secondary">
+                      {formatDisplayDate(item.moveIn)} –{' '}
+                      {formatDisplayDate(item.actualMoveOut || item.moveOut)}
+                    </p>
+                    <p className="mt-1 text-sm text-ink-secondary">
+                      {item.stage === 'complete' || item.status === 'Completed'
+                        ? 'Completed'
+                        : item.status}
+                      {item.settlementStatus === 'COMPLETED' ? ' · Settlement completed' : ''}
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button size="sm" variant="secondary" onClick={() => navigate(paths.tenancy(item.id))}>
+                        View
+                      </Button>
+                      {item.reportUrl ? (
+                        <a
+                          href={resolveMediaUrl(item.reportUrl)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex h-9 items-center rounded-xl border border-border-strong bg-white px-3 text-sm font-semibold text-ink hover:bg-surface-muted"
+                        >
+                          View Report
+                        </a>
+                      ) : null}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 text-sm text-ink-secondary">No previous tenancies.</p>
+            )}
+          </Card>
+        </div>
       ) : null}
       {error ? <p className="mt-4 text-sm text-danger">{error}</p> : null}
 

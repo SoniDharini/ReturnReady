@@ -40,7 +40,7 @@ export function RequireTenant() {
   if (!user) return <Navigate to="/login" replace />
   if (user.role !== 'TENANT') return <Navigate to={roleHome(user.role)} replace />
 
-  if (user.tenantAccess?.status === 'CLOSED' || user.tenantAccess?.status === 'REVOKED') {
+  if (user.tenantAccess?.status === 'REVOKED') {
     const q = new URLSearchParams({
       property: user.tenantAccess.propertyName,
       tenancyId: user.tenantAccess.tenancyId,
@@ -48,7 +48,7 @@ export function RequireTenant() {
     return <Navigate to={`/access-closed?${q.toString()}`} replace />
   }
 
-  if (user.tenantAccess?.status !== 'ACTIVE') {
+  if (user.tenantAccess?.status !== 'ACTIVE' && user.tenantAccess?.status !== 'CLOSED') {
     return <Navigate to="/login" replace />
   }
 
