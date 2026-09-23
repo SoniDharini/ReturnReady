@@ -43,16 +43,20 @@ pnpm-debug.log*
 lerna-debug.log*
 
 # =========================
-# Runtime / temp
+# Runtime / temp / local media
 # =========================
 tmp/
 temp/
 uploads/
+backend/uploads/
 *.tmp
 *.temp
 *.pid
 *.seed
 *.pid.lock
+
+# Smoke-test images generated under backend/scripts
+backend/scripts/smoke.png
 
 # =========================
 # OS files

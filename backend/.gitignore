@@ -30,6 +30,9 @@ uploads/
 *.seed
 *.pid.lock
 
+# Smoke-test image
+scripts/smoke.png
+
 # OS / editors
 .DS_Store
 Thumbs.db

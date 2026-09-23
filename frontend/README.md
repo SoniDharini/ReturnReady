@@ -1,42 +1,36 @@
 # ReturnReady Frontend
 
-React + TypeScript UI connected to the Node.js API and MongoDB.
+React + TypeScript workspace for owners and tenants. Start the API in `backend` before this app.
 
 ## Setup
 
 ```bash
-cd frontend
+cp .env.example .env
 npm install
+npm run dev
 ```
 
-Create `.env` (see `.env.example`):
+`.env`:
 
 ```env
 VITE_API_URL=http://localhost:5000/api
 ```
 
-Start the backend first (`cd backend && npm run dev`), then:
+App: [http://localhost:5173](http://localhost:5173)
 
-```bash
-cd backend
-npm run dev
-```
+`npm run build` typechecks and builds for production. `npm run preview` serves that build.
 
-## Auth flow
+## Auth
 
-1. Owner registers at `/register/owner` → `POST /api/auth/register`
-2. Login at `/login` → `POST /api/auth/login` (role comes from MongoDB)
-3. Session restore on reload → `GET /api/auth/me`
-4. Tenant joins via `/invite/:token` only (no public tenant signup)
+- Owners register at `/register/owner`.
+- Login at `/login`. The role comes from the API, not the form.
+- Tenants activate only at `/invite/:token`.
+- The access token is kept in `sessionStorage`. Refresh uses an HTTP-only cookie, so API calls send credentials.
 
-Access token is stored in `sessionStorage`; refresh token uses an HTTP-only cookie.
+Owners land on `/owner/dashboard`. Tenants land on `/tenant/dashboard`. A completed tenancy stays available to that tenant as read-only history.
 
-## Integrated APIs
+## Workspace
 
-| Feature | Endpoints |
-|---------|-----------|
-| Auth | `/api/auth/*` |
-| Properties | `/api/properties` |
-| Tenancies / invites | `/api/tenancies`, `/api/invitations` |
+Owners manage properties, tenancies, inspections, property changes, settlement, and reports.
 
-Inspection and settlement screens remain in the UI as empty states until those backend modules are added.
+Tenants see their rental, property change requests, inspections, settlement, and completed handover reports.
